@@ -4,7 +4,7 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
-from app.models import Game, Status
+from app.models import Game, Sources, Status
 from integrations.imports import playnite
 from integrations.imports.helpers import MediaImportError
 
@@ -53,7 +53,11 @@ class PlayniteImporterTests(TestCase):
         matched = Game.objects.get(user=self.user, item__media_id="42")
         self.assertEqual(matched.progress, 90)
         self.assertEqual(matched.status, Status.COMPLETED.value)
-        self.assertEqual(warnings, "Unmatched Game: Couldn't find a match in IGDB; none imported")
+        self.assertEqual(
+            warnings,
+            f"Unmatched Game: Couldn't find a match in {Sources.IGDB.label}; "
+            "none imported",
+        )
 
     def test_supports_time_played_seconds_and_bom(self):
         csv_data = "\ufeffName,Completion Status,Time Played\nMatched Game,Beaten,61\n"

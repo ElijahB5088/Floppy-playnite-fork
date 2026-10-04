@@ -41,6 +41,7 @@ class PlayniteImporter:
     """Import Playnite's supported library CSV variants."""
 
     def __init__(self, file, user, mode):
+        """Store the uploaded file and import settings."""
         self.file = file
         self.user = user
         self.mode = mode
@@ -60,9 +61,8 @@ class PlayniteImporter:
             try:
                 self._process_game(game, unmatched)
             except Exception as error:
-                raise MediaImportUnexpectedError(
-                    f"Error processing Playnite entry: {game['name']}",
-                ) from error
+                message = f"Error processing Playnite entry: {game['name']}"
+                raise MediaImportUnexpectedError(message) from error
 
         if unmatched:
             self.warnings.append(
@@ -77,23 +77,24 @@ class PlayniteImporter:
             for media_type, media_list in self.bulk_media.items()
         }
         warning_text = "\n".join(dict.fromkeys(self.warnings))
-        return imported_counts, warning_text if warning_text else None
+        return imported_counts, warning_text or None
 
     def _read_rows(self):
         """Read Playnite CSV rows and validate its required columns."""
         try:
             raw = self.file.read().decode("utf-8-sig")
         except UnicodeDecodeError as error:
-            raise MediaImportError("Invalid Playnite CSV file.") from error
+            message = "Invalid Playnite CSV file."
+            raise MediaImportError(message) from error
 
         reader = csv.DictReader(io.StringIO(raw))
         headers = set(reader.fieldnames or ())
         if "Name" not in headers:
-            raise MediaImportError("Playnite CSV must contain a Name column.")
+            message = "Playnite CSV must contain a Name column."
+            raise MediaImportError(message)
         if not ({"TimePlayedHours", "Time Played"} & headers):
-            raise MediaImportError(
-                "Playnite CSV must contain TimePlayedHours or Time Played.",
-            )
+            message = "Playnite CSV must contain TimePlayedHours or Time Played."
+            raise MediaImportError(message)
         return list(reader)
 
     def _consolidate(self, rows):
@@ -176,12 +177,14 @@ class PlayniteImporter:
             try:
                 return max(0, round(float(value or 0) * 3600))
             except ValueError as error:
-                raise MediaImportError("Playnite playtime is invalid.") from error
+                message = "Playnite playtime is invalid."
+                raise MediaImportError(message) from error
         value = (row.get("Time Played") or "0").strip()
         try:
             return max(0, int(value or 0))
         except ValueError as error:
-            raise MediaImportError("Playnite playtime is invalid.") from error
+            message = "Playnite playtime is invalid."
+            raise MediaImportError(message) from error
 
     @staticmethod
     def _minutes(seconds):
