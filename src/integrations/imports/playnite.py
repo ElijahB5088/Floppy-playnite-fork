@@ -10,10 +10,12 @@ from django.db.models import F
 
 import app
 import app.providers
+from django.db.models import F
 from app.models import MediaTypes, Sources, Status
 from integrations import import_progress
 from integrations.imports import helpers
 from integrations.imports.helpers import MediaImportError, MediaImportUnexpectedError
+from integrations.models import ImportRun
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +53,7 @@ class PlayniteImporter:
         self.existing_media = helpers.get_existing_media(user)
         self.to_delete = defaultdict(lambda: defaultdict(set))
         self.bulk_media = defaultdict(list)
+        self.run_counts = {"created": 0, "skipped": 0, "failed": 0}
 
     def import_data(self):
         """Parse, match, and bulk-create the Playnite library."""
@@ -63,6 +66,7 @@ class PlayniteImporter:
             try:
                 self._process_game(game, unmatched)
             except Exception as error:
+                self._increment_run_count("failed")
                 message = f"Error processing Playnite entry: {game['name']}"
                 raise MediaImportUnexpectedError(message) from error
 
@@ -78,6 +82,7 @@ class PlayniteImporter:
             media_type: len(media_list)
             for media_type, media_list in self.bulk_media.items()
         }
+        imported_counts.update(self.run_counts)
         warning_text = "\n".join(dict.fromkeys(self.warnings))
         return imported_counts, warning_text or None
 
@@ -129,9 +134,11 @@ class PlayniteImporter:
             MediaTypes.GAME.value,
             game["name"],
             1,
+            user=self.user,
         ).get("results", [])
         if not results:
             unmatched.append(game["name"])
+            self._increment_run_count("skipped")
             return
 
         match = results[0]
@@ -153,6 +160,7 @@ class PlayniteImporter:
             media_id,
             self.mode,
         ):
+            self._increment_run_count("skipped")
             return
 
         model = app.models.Game
@@ -164,6 +172,16 @@ class PlayniteImporter:
                 progress=self._minutes(game["seconds"]),
             ),
         )
+        self._increment_run_count("created")
+
+    def _increment_run_count(self, field):
+        """Update live ImportRun counters while Playnite is being processed."""
+        self.run_counts[field] += 1
+        import_run_id = import_progress.get_current_import_run_id()
+        if import_run_id is not None:
+            ImportRun.objects.filter(id=import_run_id).update(
+                **{f"{field}_count": F(f"{field}_count") + 1},
+            )
 
     @staticmethod
     def _status(row):
