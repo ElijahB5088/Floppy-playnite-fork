@@ -162,7 +162,7 @@ SOURCES_CONFIG = {
     },
     "playnite": {
         "name": "Playnite",
-        "logo": static("favicon/apple-touch-icon.png"),
+        "logo": static("img/playnite-logo.svg"),
     },
     "grouvee": {
         "name": "Grouvee",
