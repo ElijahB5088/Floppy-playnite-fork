@@ -20,7 +20,7 @@ class PlayniteImporterTests(TestCase):
         self.mock_search.side_effect = self._search
 
     @staticmethod
-    def _search(_media_type, title, _page, user=None):
+    def _search(_media_type, title, _page, **_kwargs):
         if title == "Unmatched Game":
             return {"results": []}
         return {
