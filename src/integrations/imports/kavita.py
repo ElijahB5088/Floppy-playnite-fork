@@ -185,6 +185,13 @@ def _issue_number(value):
     return match.group(1) if match else ""
 
 
+def _comicvine_id(value, resource_prefix):
+    """Normalize Kavita's already-prefixed Comic Vine IDs."""
+    normalized = str(value or "").strip()
+    prefix = f"{resource_prefix}-"
+    return normalized.removeprefix(prefix)
+
+
 def _search_volume_id(title, user):
     """Return a ComicVine volume ID only for a unique title match."""
     results = comicvine.search(title, 1, user=user).get("results", [])
@@ -319,6 +326,7 @@ class KavitaImporter(ReadingServerImporter):
         volume_id = series.get("comicVineId")
         if not volume_id and self.enable_provider_enrichment and title:
             volume_id = _search_volume_id(title, self.user)
+        volume_id = _comicvine_id(volume_id, 4050)
 
         def resolve():
             if volume_id:
@@ -455,6 +463,7 @@ class KavitaImporter(ReadingServerImporter):
                 and number
             ):
                 issue_id = _search_issue_id(series_name, number, self.user)
+            issue_id = _comicvine_id(issue_id, 4000)
             item = None
             if issue_id:
                 try:
