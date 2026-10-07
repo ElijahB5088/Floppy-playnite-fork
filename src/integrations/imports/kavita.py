@@ -3,21 +3,27 @@
 Verified against Kavita's OpenAPI file (v0.9.1.6): an API key is exchanged for
 a JWT at ``/api/Plugin/authenticate``, series come from ``/api/Series/all-v2``
 with their MyAnimeList and Comic Vine ids, and chapters (with pages read) from
-``/api/Series/series-detail``. Nothing is written back to Kavita.
+``/api/Series/series-detail``. Comic identities are enriched from Comic Vine
+before their local progress rows are written. Nothing is written back to
+Kavita.
 """
 
 import logging
+import re
+from http import HTTPStatus
 
 from django.conf import settings
 from django.utils import timezone
 
 import app
+from app import metadata_utils
 from app.models import Item, MediaTypes, Sources
+from app.providers import comicvine, services
+from app.services import metadata_resolution
 from integrations.imports.helpers import (
     ConnectionAuthError,
     find_item_across_buckets,
 )
-from integrations.imports.mylar import comic_issue_item
 from integrations.imports.reading_server import (
     ReadingServerImporter,
     parse_datetime,
@@ -168,6 +174,112 @@ def _is_read(chapter):
     return pages > 0 and int(chapter.get("pagesRead") or 0) >= pages
 
 
+def _normalized_title(value):
+    """Normalize a title for conservative provider-search matching."""
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+
+
+def _issue_number(value):
+    """Return the leading issue number from a Kavita issue label."""
+    match = re.match(r"\s*(\d+(?:\.\d+)?)", str(value or ""))
+    return match.group(1) if match else ""
+
+
+def _search_volume_id(title, user):
+    """Return a ComicVine volume ID only for a unique title match."""
+    results = comicvine.search(title, 1, user=user).get("results", [])
+    matches = [
+        result
+        for result in results
+        if _normalized_title(result.get("title")) == _normalized_title(title)
+    ]
+    return str(matches[0]["media_id"]) if len(matches) == 1 else None
+
+
+def _search_issue_id(series_title, issue_number, user):
+    """Return a ComicVine issue ID only for a matching volume and number."""
+    results = comicvine.search_issues(
+        f"{series_title} {issue_number}",
+        1,
+        user=user,
+    ).get("results", [])
+    expected_title = _normalized_title(series_title)
+    matches = []
+    for result in results:
+        title = str(result.get("title") or "")
+        match = re.match(r"^(.*?)\s+#\s*([0-9.]+)", title)
+        if (
+            match
+            and _normalized_title(match.group(1)) == expected_title
+            and match.group(2) == str(issue_number).strip()
+        ):
+            matches.append(result)
+    return str(matches[0]["media_id"]) if len(matches) == 1 else None
+
+
+def _apply_provider_metadata(item, metadata):
+    """Persist normalized provider metadata on a resolved Kavita item."""
+    title_fields = Item.title_fields_from_metadata(metadata, fallback_title=item.title)
+    update_fields = []
+    for field, value in title_fields.items():
+        if getattr(item, field) != value:
+            setattr(item, field, value)
+            update_fields.append(field)
+    image = metadata.get("image") or settings.IMG_NONE
+    if item.image != image:
+        item.image = image
+        update_fields.append("image")
+    update_fields.extend(metadata_utils.apply_item_metadata(item, metadata))
+    if update_fields:
+        item.metadata_fetched_at = timezone.now()
+        update_fields.append("metadata_fetched_at")
+        item.save(update_fields=list(dict.fromkeys(update_fields)))
+    metadata_resolution.upsert_provider_links(
+        item,
+        metadata,
+        provider=Sources.COMICVINE.value,
+        provider_media_type=item.media_type,
+    )
+
+
+def _provider_item(media_id, media_type, title, user, enrich):
+    """Resolve a ComicVine identity and optionally persist its metadata."""
+    identity = {
+        "media_id": str(media_id),
+        "source": Sources.COMICVINE.value,
+        "media_type": media_type.value,
+    }
+    item = find_item_across_buckets(**identity)
+    if item is None:
+        item = Item.objects.create(
+            **identity,
+            library_media_type=media_type.value,
+            season_number=None,
+            episode_number=None,
+            title=title,
+            original_title=title,
+            localized_title=title,
+            image=settings.IMG_NONE,
+        )
+    if enrich and (item.metadata_fetched_at is None or not item.synopsis):
+        metadata = services.get_media_metadata(
+            media_type.value,
+            str(media_id),
+            Sources.COMICVINE.value,
+            user=user,
+        )
+        _apply_provider_metadata(item, metadata)
+    return item
+
+
+def _provider_not_found(error):
+    """Return whether a provider failure confirms an unknown identity."""
+    return isinstance(error, services.ProviderAPIError) and (
+        error.status_code == HTTPStatus.NOT_FOUND
+        or getattr(error, "confirmed_absent", False)
+    )
+
+
 class KavitaImporter(ReadingServerImporter):
     """Import reading progress from Kavita."""
 
@@ -196,9 +308,57 @@ class KavitaImporter(ReadingServerImporter):
         elif library_type in BOOK_LIBRARIES:
             self._import_book(series, chapters, read_at, links, counts)
         elif library_type in COMIC_LIBRARIES:
+            self._import_comic_series(series, chapters, read_at, links, counts)
             for chapter in chapters:
                 if int(chapter.get("pagesRead") or 0) > 0:
                     self._import_comic_issue(series, chapter, read_at, links, counts)
+
+    def _import_comic_series(self, series, chapters, read_at, links, counts):
+        """Track the Kavita comic series by its read-issue count."""
+        title = series.get("name") or ""
+        volume_id = series.get("comicVineId")
+        if not volume_id and self.enable_provider_enrichment and title:
+            volume_id = _search_volume_id(title, self.user)
+
+        def resolve():
+            if volume_id:
+                try:
+                    return _provider_item(
+                        volume_id,
+                        MediaTypes.COMIC,
+                        title,
+                        self.user,
+                        self.enable_provider_enrichment,
+                    )
+                except services.ProviderAPIError as error:
+                    if not _provider_not_found(error):
+                        raise
+            if self.account.create_missing and title:
+                return self.manual_item(MediaTypes.COMIC, title)
+            return None
+
+        read_count = sum(1 for chapter in chapters if _is_read(chapter))
+        pages = int(series.get("pages") or 0)
+        page = int(series.get("pagesRead") or 0)
+        completed = pages > 0 and page >= pages
+        self.import_entry(
+            links,
+            f"series:{series['id']}",
+            title,
+            counts,
+            MediaTypes.COMIC,
+            resolve,
+            lambda item: write_reading_progress(
+                self.user,
+                item,
+                app.models.Comic,
+                progress=read_count,
+                completed=completed,
+                read_at=read_at,
+                started_at=None,
+                entry_source=ENTRY_SOURCE,
+            ),
+        )
 
     def _import_manga(self, series, chapters, read_at, links, counts):
         """Track a manga series by its chapters read."""
@@ -287,7 +447,27 @@ class KavitaImporter(ReadingServerImporter):
         completed = _is_read(chapter)
 
         def resolve():
-            item = comic_issue_item(chapter.get("comicVineId"), label, None)
+            issue_id = chapter.get("comicVineId")
+            if (
+                not issue_id
+                and self.enable_provider_enrichment
+                and series_name
+                and number
+            ):
+                issue_id = _search_issue_id(series_name, number, self.user)
+            item = None
+            if issue_id:
+                try:
+                    item = _provider_item(
+                        issue_id,
+                        MediaTypes.COMIC_ISSUE,
+                        label,
+                        self.user,
+                        self.enable_provider_enrichment,
+                    )
+                except services.ProviderAPIError as error:
+                    if not _provider_not_found(error):
+                        raise
             if item or not self.account.create_missing or not label:
                 return item
             return self.manual_item(MediaTypes.COMIC_ISSUE, label)

@@ -9,7 +9,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django_celery_beat.models import PeriodicTask
 
-from app.models import Book, ComicIssue, Item, Manga, MediaTypes, Sources, Status
+from app.models import Book, Comic, ComicIssue, Item, Manga, MediaTypes, Sources, Status
 from integrations.imports import helpers, kavita
 from integrations.models import KavitaAccount
 
@@ -185,6 +185,79 @@ class KavitaImporterTests(TestCase):
         self.assertEqual(partial.progress, 5)
         self.assertFalse(Item.objects.filter(media_id="303").exists())
         self.assertEqual(counts[MediaTypes.COMIC_ISSUE.value], 2)
+
+    @patch("integrations.imports.kavita.settings.TESTING", False)
+    @patch("integrations.imports.kavita.services.get_media_metadata")
+    def test_comic_ids_enrich_items_and_track_the_series(
+        self,
+        mock_metadata,
+    ):
+        series = _series(2, name="Saga", pages=40, pages_read=40, comicVineId="900")
+        chapters = [
+            _chapter(21, pages_read=20, number=1, comicVineId="301"),
+            _chapter(22, pages_read=20, number=2, comicVineId="302"),
+        ]
+        mock_metadata.side_effect = lambda media_type, media_id, source, **kwargs: {
+            "media_id": media_id,
+            "source": source,
+            "media_type": media_type,
+            "title": f"Enriched {media_id}",
+            "image": "https://images.example/cover.jpg",
+            "synopsis": "Provider synopsis",
+            "max_progress": None,
+            "max_issue_number": 2,
+            "details": {"publisher": "Example Comics"},
+        }
+
+        self._sync([series], {2: _detail(COMIC, chapters)})
+
+        comic = Comic.objects.get(user=self.user)
+        self.assertEqual(comic.item.media_id, "900")
+        self.assertEqual(comic.progress, 2)
+        self.assertEqual(comic.status, Status.COMPLETED.value)
+        issue = ComicIssue.objects.get(user=self.user, item__media_id="301")
+        self.assertEqual(issue.item.title, "Enriched 301")
+        self.assertEqual(issue.item.synopsis, "Provider synopsis")
+        self.assertEqual(issue.item.publishers, "Example Comics")
+        self.assertGreaterEqual(mock_metadata.call_count, 3)
+
+    @patch("integrations.imports.kavita.settings.TESTING", False)
+    @patch(
+        "integrations.imports.kavita._search_issue_id",
+        return_value="301",
+    )
+    @patch(
+        "integrations.imports.kavita._search_volume_id",
+        return_value="900",
+    )
+    @patch("integrations.imports.kavita.services.get_media_metadata")
+    def test_comic_search_fallback_resolves_series_and_issue(
+        self,
+        mock_metadata,
+        mock_volume,
+        mock_issue,
+    ):
+        series = _series(2, name="Saga", pages=40, pages_read=20)
+        chapters = [_chapter(21, pages_read=20, number=1)]
+        mock_metadata.return_value = {
+            "title": "Saga",
+            "image": "https://images.example/cover.jpg",
+            "synopsis": "Provider synopsis",
+            "max_progress": None,
+            "max_issue_number": 1,
+            "details": {},
+        }
+
+        self._sync([series], {2: _detail(COMIC, chapters)})
+
+        self.assertTrue(
+            Comic.objects.filter(user=self.user, item__media_id="900").exists(),
+        )
+        self.assertTrue(
+            ComicIssue.objects.filter(user=self.user, item__media_id="301").exists(),
+        )
+        mock_volume.assert_called_once_with("Saga", self.user)
+        mock_issue.assert_called_once_with("Saga", "1", self.user)
 
     def test_book_is_matched_by_isbn_and_tracks_pages(self):
         item = Item.objects.create(
