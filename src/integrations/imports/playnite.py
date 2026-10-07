@@ -6,9 +6,10 @@ import logging
 import re
 from collections import defaultdict
 
+from django.db.models import F
+
 import app
 import app.providers
-from django.db.models import F
 from app.models import MediaTypes, Sources, Status
 from integrations import import_progress
 from integrations.imports import helpers
