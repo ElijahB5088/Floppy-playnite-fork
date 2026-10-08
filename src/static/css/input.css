@@ -1525,7 +1525,7 @@ html.light .theme-toggle-icon-moon {
 
   .detail-carousel-grid:has(.detail-mobile-hero) .detail-carousel-grid__title,
   .detail-carousel-grid.detail-hero-pending .detail-carousel-grid__title {
-    z-index: 1;
+    z-index: 2;
     text-align: center;
   }
 
