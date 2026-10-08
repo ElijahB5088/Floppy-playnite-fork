@@ -24,10 +24,12 @@
         min-width: 0;
       }
 
+      /* leading-none plus overflow:hidden (ellipsis) would clip the tails of g, y and p. */
       .home-row-heading-title,
       .home-row-heading-separator,
       .home-row-heading-detail {
         font-size: var(--text-base);
+        line-height: 1.35;
       }
 
       .home-row-heading-sort-button {
