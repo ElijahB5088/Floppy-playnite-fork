@@ -701,7 +701,7 @@ class MediaDetailsViewTests(TestCase):
 
         # Movies and TV reserve the hero up front so the page does not jump
         # when the carousel fragment brings the backdrop.
-        self.assertIn("detail-hero-pending", content)
+        self.assertIn('class="detail-carousel-grid detail-hero-pending"', content)
         self.assertIn("detail-carousel-grid__title", content)
         self.assertIn("detail-carousel-grid__actions", content)
         self.assertIn('<p class="detail-mobile-meta">2020 · 2h 6min</p>', content)
@@ -732,7 +732,8 @@ class MediaDetailsViewTests(TestCase):
         content = self.client.get(detail_url).content.decode()
 
         self.assertIn("detail-carousel-grid", content)
-        self.assertNotIn("detail-hero-pending", content)
+        self.assertIn('class="detail-carousel-grid"', content)
+        self.assertNotIn("detail-carousel-grid detail-hero-pending", content)
         self.assertNotIn("detail-mobile-meta", content)
 
     @patch("app.providers.services.get_media_metadata")
