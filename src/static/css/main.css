@@ -2974,6 +2974,9 @@
   .pl-\[max\(1rem\,var\(--safe-left\)\)\] {
     padding-left: max(1rem, var(--safe-left));
   }
+  .pl-\[var\(--safe-left\)\] {
+    padding-left: var(--safe-left);
+  }
   .text-center {
     text-align: center;
   }
@@ -8423,7 +8426,7 @@ html.light .theme-toggle-icon-moon {
     overflow-x: hidden;
   }
 }
-@media (max-width: 768px) and (orientation: landscape) {
+@media (orientation: landscape) and (max-width: 768px), (orientation: landscape) and (pointer: coarse) and (max-height: 520px) {
   body {
     --card-cols: 3;
     --card-short-side: min(100vw, 100lvh);

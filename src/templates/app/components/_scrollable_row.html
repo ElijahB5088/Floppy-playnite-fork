@@ -104,19 +104,19 @@
         {% if row.summary %}<p class="text-sm text-[var(--color-text-muted)]">{{ row.summary }}</p>{% endif %}
       {% endif %}
     </div>
-    <div class="flex items-center gap-0.5 shrink-0 pointer-coarse:hidden">
+    <div class="flex items-center gap-0.5 shrink-0">
       <button type="button"
               data-scroll-dir="prev"
               data-scroll-target="media-grid-row-{{ row.row_id }}"
               aria-label="{% translate "Scroll left" %}"
-              class="p-1 rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] transition-colors opacity-0 pointer-events-none">
+              class="p-1 rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] transition-colors opacity-0 pointer-events-none pointer-coarse:hidden">
         {% include "app/icons/chevron-left.svg" with classes="w-5 h-5" %}
       </button>
       <button type="button"
               data-scroll-dir="next"
               data-scroll-target="media-grid-row-{{ row.row_id }}"
               aria-label="{% translate "Scroll right" %}"
-              class="p-1 rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] transition-colors">
+              class="p-1 rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)] transition-colors pointer-coarse:hidden">
         {% include "app/icons/chevron-right.svg" with classes="w-5 h-5" %}
       </button>
       {% if collapse_key %}

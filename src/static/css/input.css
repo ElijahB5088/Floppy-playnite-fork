@@ -3178,7 +3178,7 @@ html.light .theme-toggle-icon-moon {
 /* A phone turned sideways keeps the card size it had upright: sized from the
    short side of the screen, so the extra width shows more cards, not bigger ones.
    100lvh ignores Safari's collapsing toolbar, so cards do not resize on scroll. */
-@media (max-width: 768px) and (orientation: landscape) {
+@media (orientation: landscape) and (max-width: 768px), (orientation: landscape) and (pointer: coarse) and (max-height: 520px) {
   body {
     --card-cols: 3;
     --card-short-side: min(100vw, 100lvh);
