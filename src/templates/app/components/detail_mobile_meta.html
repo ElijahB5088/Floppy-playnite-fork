@@ -2,6 +2,6 @@
 {# Year and runtime under the title; phones only (see .detail-mobile-meta in input.css). #}
 {% with year=media.details|release_year runtime=media.details.runtime %}
   {% if year or runtime %}
-    <p class="detail-mobile-meta">{% if year %}{{ year }}{% endif %}{% if year and runtime %} · {% endif %}{% if runtime %}{{ runtime }}{% endif %}</p>
+    <p class="detail-mobile-meta md:hidden">{% if year %}{{ year }}{% endif %}{% if year and runtime %} · {% endif %}{% if runtime %}{{ runtime }}{% endif %}</p>
   {% endif %}
 {% endwith %}

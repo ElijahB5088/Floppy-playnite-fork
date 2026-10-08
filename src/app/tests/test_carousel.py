@@ -141,6 +141,30 @@ class CarouselOverviewTests(SimpleTestCase):
         self.assertIsNone(result["overview"])
         self.assertEqual(result["hero"], {"url": "w1280/backdrop.jpg", "logo_url": None})
 
+    @patch("app.providers.tmdb.get_carousel_image_url")
+    @patch("app.providers.tmdb.carousel_media")
+    def test_a_lone_backdrop_still_builds_the_hero_and_a_one_image_carousel(
+        self, mock_media, mock_image_url
+    ):
+        # TMDB can return a top-level backdrop with no gallery, trailer or logo.
+        mock_media.return_value = {
+            "video": None,
+            "photos": [],
+            "logos": [],
+            "backdrop_path": "/backdrop.jpg",
+        }
+        mock_image_url.side_effect = lambda path, size: f"{size}{path}"
+
+        result = carousel.resolve_carousel_media(
+            MediaTypes.MOVIE.value, Sources.TMDB.value, "42"
+        )
+
+        self.assertEqual(result["hero"], {"url": "w1280/backdrop.jpg", "logo_url": None})
+        self.assertEqual(
+            result["photos"],
+            [{"url": "w1280/backdrop.jpg", "thumb_url": "w300/backdrop.jpg"}],
+        )
+
     @patch("app.providers.tmdb.carousel_media")
     def test_no_backdrop_means_no_phone_hero(self, mock_media):
         mock_media.return_value = {

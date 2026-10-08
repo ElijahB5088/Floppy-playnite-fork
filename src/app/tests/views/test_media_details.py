@@ -704,7 +704,7 @@ class MediaDetailsViewTests(TestCase):
         self.assertIn('class="detail-carousel-grid detail-hero-pending"', content)
         self.assertIn("detail-carousel-grid__title", content)
         self.assertIn("detail-carousel-grid__actions", content)
-        self.assertIn('<p class="detail-mobile-meta">2020 · 2h 6min</p>', content)
+        self.assertIn('<p class="detail-mobile-meta md:hidden">2020 · 2h 6min</p>', content)
 
     @patch("app.providers.services.get_media_metadata")
     def test_game_header_starts_compact_without_a_reserved_hero(self, mock_get_metadata):
