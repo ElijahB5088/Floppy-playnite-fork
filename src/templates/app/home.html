@@ -10,10 +10,28 @@
   {# Styles live in the content block so boosted navigation keeps them #}
   <style>
     @media (max-width: 639.98px) {
+      /* Title never wraps; the sort method drops to its own line only when it does not fit beside it. */
       .home-row-heading {
+        flex-wrap: wrap;
+        max-width: 100%;
+        min-width: 0;
+        row-gap: 0.125rem;
+      }
+
+      .home-row-heading-text {
         flex-wrap: nowrap;
         max-width: 100%;
         min-width: 0;
+      }
+
+      .home-row-heading-title,
+      .home-row-heading-separator,
+      .home-row-heading-detail {
+        font-size: var(--text-base);
+      }
+
+      .home-row-heading-sort-button {
+        margin-left: 0;
       }
 
       .home-row-heading-title,
