@@ -122,6 +122,9 @@ class PhoneLayoutCssContractTests(SimpleTestCase):
             r"\(max-height: 700px\)"
         ),
         "card size stops growing at a cap": r"--card-cap: 8\.4rem",
+        "grid tracks are fixed at the cap, not stretched with 1fr": (
+            r"repeat\(auto-fill, min\(calc\([^;]*var\(--card-cap\)\)\)\) !important"
+        ),
         "rating chips sit below the action row on phones": (
             r'"actions actions"\s+"chips chips"\s+"synopsis synopsis"'
         ),

@@ -8655,13 +8655,13 @@ html.light .theme-toggle-icon-moon {
     --card-cap: 13rem;
   }
   [data-mobile-grid="comfortable"] .media-grid, [data-mobile-grid="comfortable"] .detail-media-grid {
-    grid-template-columns: repeat(auto-fill, minmax(min(calc((100% - var(--spacing) * 3) / 2), var(--card-cap)), 1fr)) !important;
+    grid-template-columns: repeat(auto-fill, min(calc((100% - var(--spacing) * 3) / 2), var(--card-cap))) !important;
   }
   [data-mobile-grid="comfortable"] .home-row-card {
     width: min(calc((100% - calc(var(--spacing) * 4)) / 2), var(--card-cap)) !important;
   }
   [data-mobile-grid="compact"] .media-grid, [data-mobile-grid="compact"] .detail-media-grid {
-    grid-template-columns: repeat(auto-fill, minmax(min(calc((100% - var(--spacing) * 6) / 3), var(--card-cap)), 1fr)) !important;
+    grid-template-columns: repeat(auto-fill, min(calc((100% - var(--spacing) * 6) / 3), var(--card-cap))) !important;
   }
   [data-mobile-grid="compact"] .home-row-card {
     width: min(calc((100% - calc(var(--spacing) * 8)) / 3), var(--card-cap)) !important;
@@ -8854,7 +8854,7 @@ html.light .theme-toggle-icon-moon {
     --card-cap: 13rem;
   }
   [data-mobile-grid] .media-grid, [data-mobile-grid] .detail-media-grid {
-    grid-template-columns: repeat(auto-fill, minmax(min(calc((var(--card-short-side) - 2rem - (var(--card-cols) - 1) * 0.75rem) / var(--card-cols)), var(--card-cap)), 1fr)) !important;
+    grid-template-columns: repeat(auto-fill, min(calc((var(--card-short-side) - 2rem - (var(--card-cols) - 1) * 0.75rem) / var(--card-cols)), var(--card-cap))) !important;
   }
   [data-mobile-grid] .home-row-card {
     width: min(calc((var(--card-short-side) - 2rem - (var(--card-cols) - 1) * 1rem) / var(--card-cols)), var(--card-cap)) !important;

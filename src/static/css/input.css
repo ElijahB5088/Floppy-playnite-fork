@@ -3493,7 +3493,7 @@ html.light .theme-toggle-icon-moon {
      screen adds columns instead of enlarging the cards. */
   [data-mobile-grid="comfortable"] .media-grid,
   [data-mobile-grid="comfortable"] .detail-media-grid {
-    grid-template-columns: repeat(auto-fill, minmax(min(calc((100% - var(--spacing) * 3) / 2), var(--card-cap)), 1fr)) !important;
+    grid-template-columns: repeat(auto-fill, min(calc((100% - var(--spacing) * 3) / 2), var(--card-cap))) !important;
   }
 
   [data-mobile-grid="comfortable"] .home-row-card {
@@ -3502,7 +3502,7 @@ html.light .theme-toggle-icon-moon {
 
   [data-mobile-grid="compact"] .media-grid,
   [data-mobile-grid="compact"] .detail-media-grid {
-    grid-template-columns: repeat(auto-fill, minmax(min(calc((100% - var(--spacing) * 6) / 3), var(--card-cap)), 1fr)) !important;
+    grid-template-columns: repeat(auto-fill, min(calc((100% - var(--spacing) * 6) / 3), var(--card-cap))) !important;
   }
 
   [data-mobile-grid="compact"] .home-row-card {
@@ -3750,7 +3750,7 @@ html.light .theme-toggle-icon-moon {
 
   [data-mobile-grid] .media-grid,
   [data-mobile-grid] .detail-media-grid {
-    grid-template-columns: repeat(auto-fill, minmax(min(calc((var(--card-short-side) - 2rem - (var(--card-cols) - 1) * 0.75rem) / var(--card-cols)), var(--card-cap)), 1fr)) !important;
+    grid-template-columns: repeat(auto-fill, min(calc((var(--card-short-side) - 2rem - (var(--card-cols) - 1) * 0.75rem) / var(--card-cols)), var(--card-cap))) !important;
   }
 
   [data-mobile-grid] .home-row-card {
