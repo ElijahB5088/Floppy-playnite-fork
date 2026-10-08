@@ -249,7 +249,7 @@ class DetailScoreChipStatesTests(SimpleTestCase):
         both = self._render(score=Decimal(8), derived=self.derived)
         self.assertRegex(
             both,
-            r'<span class="sr-only">Your score</span><span[^>]*>8</span>.*'
+            r'<span class="sr-only">Your score</span><span[^>]*>8\.0</span>.*'
             r'<span class="sr-only">Derived rating</span><span[^>]*>7\.6',
         )
         self.assertEqual(both.count('class="sr-only"'), 2)

@@ -128,6 +128,10 @@ class PhoneLayoutCssContractTests(SimpleTestCase):
         "chip row fades only on the side that has more to scroll to": (
             r"\.detail-score-card-row--fade-left \{\s+--row-fade-left: transparent"
         ),
+        "phone chip cards only reveal on hover where hover exists": (
+            r"@media \(hover: hover\) \{\s+:is\(\.detail-carousel-grid, \.detail-flat-top\) "
+            r"\.detail-provider-score-card\.group:hover"
+        ),
         "unfolded portrait keeps the poster beside the info": (
             r"@media \(min-width: 600px\) and \(max-width: 767\.98px\)"
         ),

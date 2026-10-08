@@ -1764,11 +1764,6 @@ html.light .theme-toggle-icon-moon {
     transition: grid-template-rows 180ms ease;
   }
 
-  :is(.detail-carousel-grid, .detail-flat-top) .detail-provider-score-card.group:hover,
-  :is(.detail-carousel-grid, .detail-flat-top) .detail-provider-score-card.group:focus-within {
-    grid-template-rows: 1.5rem 1.25rem 1rem;
-  }
-
   :is(.detail-carousel-grid, .detail-flat-top) .detail-provider-score-card--trakt {
     --detail-card-accent: 251 113 133;
   }
@@ -1807,11 +1802,6 @@ html.light .theme-toggle-icon-moon {
     transition: grid-template-rows 180ms ease;
   }
 
-  :is(.detail-carousel-grid, .detail-flat-top) .detail-provider-score-card.group:hover .detail-provider-score-card__graph,
-  :is(.detail-carousel-grid, .detail-flat-top) .detail-provider-score-card.group:focus-within .detail-provider-score-card__graph {
-    grid-template-rows: 1.5rem 1.25rem 1rem;
-  }
-
   :is(.detail-carousel-grid, .detail-flat-top) .detail-provider-score-card__score {
     grid-row: 1;
     font-size: 1.125rem;
@@ -1841,13 +1831,6 @@ html.light .theme-toggle-icon-moon {
     transform: translateY(0.4rem);
     transition: opacity 180ms ease, transform 180ms ease, max-height 180ms ease;
     pointer-events: none;
-  }
-
-  :is(.detail-carousel-grid, .detail-flat-top) .detail-provider-score-card.group:hover .detail-provider-score-card__prompt,
-  :is(.detail-carousel-grid, .detail-flat-top) .detail-provider-score-card.group:focus-within .detail-provider-score-card__prompt {
-    max-height: 1rem;
-    opacity: 1;
-    transform: translateY(0);
   }
 
   :is(.detail-carousel-grid, .detail-flat-top) .detail-derived-score-card {
@@ -1933,6 +1916,26 @@ html.light .theme-toggle-icon-moon {
 
   :is(.detail-carousel-grid, .detail-flat-top) .detail-personal-score-slot:has(.detail-personal-score-card--wide) {
     width: calc(2 * var(--detail-card-width) + var(--detail-card-gap));
+  }
+
+  /* Reveal-on-hover only where there is a real hover; a tap leaves :hover stuck on touch. */
+  @media (hover: hover) {
+    :is(.detail-carousel-grid, .detail-flat-top) .detail-provider-score-card.group:hover,
+    :is(.detail-carousel-grid, .detail-flat-top) .detail-provider-score-card.group:focus-within {
+      grid-template-rows: 1.5rem 1.25rem 1rem;
+    }
+
+    :is(.detail-carousel-grid, .detail-flat-top) .detail-provider-score-card.group:hover .detail-provider-score-card__graph,
+    :is(.detail-carousel-grid, .detail-flat-top) .detail-provider-score-card.group:focus-within .detail-provider-score-card__graph {
+      grid-template-rows: 1.5rem 1.25rem 1rem;
+    }
+
+    :is(.detail-carousel-grid, .detail-flat-top) .detail-provider-score-card.group:hover .detail-provider-score-card__prompt,
+    :is(.detail-carousel-grid, .detail-flat-top) .detail-provider-score-card.group:focus-within .detail-provider-score-card__prompt {
+      max-height: 1rem;
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 }
 
