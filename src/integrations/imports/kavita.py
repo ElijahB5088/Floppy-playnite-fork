@@ -20,6 +20,7 @@ from app import metadata_utils
 from app.models import Item, MediaTypes, Sources
 from app.providers import comicvine, services
 from app.services import metadata_resolution
+from app.services.item_merge import merge_item
 from integrations.imports.helpers import (
     ConnectionAuthError,
     find_item_across_buckets,
@@ -123,10 +124,30 @@ class KavitaClient:
             params={"seriesId": series_id},
         )
 
+    def series_metadata(self, series_id):
+        """Return editable series metadata, including external web links."""
+        return self._request(
+            "get",
+            "/api/Series/metadata",
+            params={"seriesId": series_id},
+        )
+
+    def chapter_metadata(self, chapter_id):
+        """Return chapter metadata, including its Comic Vine identity."""
+        return self._request(
+            "get",
+            "/api/Chapter",
+            params={"chapterId": chapter_id},
+        )
+
 
 def importer(identifier, user, mode):
     """Import Kavita reading progress for a user."""
-    return KavitaImporter(user).import_data()
+    importer_instance = KavitaImporter(user)
+    if mode == "overwrite":
+        importer_instance.account.last_sync_at = None
+        importer_instance.account.save(update_fields=["last_sync_at"])
+    return importer_instance.import_data()
 
 
 def mal_manga_item(mal_id, title):
@@ -186,10 +207,26 @@ def _issue_number(value):
 
 
 def _comicvine_id(value, resource_prefix):
-    """Normalize Kavita's already-prefixed Comic Vine IDs."""
+    """Normalize a Comic Vine ID or URL from Kavita."""
     normalized = str(value or "").strip()
+    match = re.search(
+        rf"/(?:volume|issue)/{resource_prefix}-(\d+)",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        return match.group(1)
     prefix = f"{resource_prefix}-"
     return normalized.removeprefix(prefix)
+
+
+def _comicvine_id_from_links(value, resource_prefix):
+    """Extract a Comic Vine identity from Kavita's comma-separated links."""
+    for link in str(value or "").split(","):
+        media_id = _comicvine_id(link.strip(), resource_prefix)
+        if media_id and media_id != link.strip():
+            return media_id
+    return None
 
 
 def _search_volume_id(title, user):
@@ -221,6 +258,17 @@ def _search_issue_id(series_title, issue_number, user):
             and match.group(2) == str(issue_number).strip()
         ):
             matches.append(result)
+    return str(matches[0]["media_id"]) if len(matches) == 1 else None
+
+
+def _volume_issue_id(volume_id, issue_number, user):
+    """Return an exact issue from a known Comic Vine volume."""
+    expected = str(issue_number).strip().lstrip("0") or "0"
+    matches = []
+    for issue in comicvine.get_volume_issues(volume_id, user=user):
+        number = str(issue.get("issue_number") or "").strip().lstrip("0") or "0"
+        if number == expected:
+            matches.append(issue)
     return str(matches[0]["media_id"]) if len(matches) == 1 else None
 
 
@@ -258,6 +306,14 @@ def _provider_item(media_id, media_type, title, user, enrich):
     }
     item = find_item_across_buckets(**identity)
     if item is None:
+        metadata = None
+        if enrich:
+            metadata = services.get_media_metadata(
+                media_type.value,
+                str(media_id),
+                Sources.COMICVINE.value,
+                user=user,
+            )
         item = Item.objects.create(
             **identity,
             library_media_type=media_type.value,
@@ -268,7 +324,9 @@ def _provider_item(media_id, media_type, title, user, enrich):
             localized_title=title,
             image=settings.IMG_NONE,
         )
-    if enrich and (item.metadata_fetched_at is None or not item.synopsis):
+        if metadata:
+            _apply_provider_metadata(item, metadata)
+    elif enrich and (item.metadata_fetched_at is None or not item.synopsis):
         metadata = services.get_media_metadata(
             media_type.value,
             str(media_id),
@@ -276,7 +334,26 @@ def _provider_item(media_id, media_type, title, user, enrich):
             user=user,
         )
         _apply_provider_metadata(item, metadata)
+    model = app.models.Item
+    tracking_model = {
+        MediaTypes.COMIC.value: app.models.Comic,
+        MediaTypes.COMIC_ISSUE.value: app.models.ComicIssue,
+    }.get(media_type.value)
+    if tracking_model is not None:
+        manual_items = model.objects.filter(
+            source=Sources.MANUAL.value,
+            media_type=media_type.value,
+            title__iexact=title,
+        ).exclude(pk=item.pk)
+        tracked = tracking_model.objects.filter(user=user, item__in=manual_items)
+        for manual in manual_items.filter(pk__in=tracked.values("item_id")):
+            merge_item(manual, item)
     return item
+
+
+def _provider_unavailable(error):
+    """Return whether a provider error is a transient connectivity failure."""
+    return isinstance(error, services.ProviderAPIError) and error.status_code is None
 
 
 def _provider_not_found(error):
@@ -297,6 +374,11 @@ class KavitaImporter(ReadingServerImporter):
     link_field = "kavita_key"
     client_class = KavitaClient
 
+    def __init__(self, user):
+        """Initialize the importer and its deferred retry state."""
+        super().__init__(user)
+        self._retrying = False
+
     def sync(self, cutoff, counts, links):
         """Import every started series read after the cutoff."""
         for series in self.client.series_with_progress():
@@ -315,20 +397,48 @@ class KavitaImporter(ReadingServerImporter):
         elif library_type in BOOK_LIBRARIES:
             self._import_book(series, chapters, read_at, links, counts)
         elif library_type in COMIC_LIBRARIES:
+            if self.enable_provider_enrichment and not series.get("comicVineId"):
+                metadata = self.client.series_metadata(series["id"])
+                series["comicVineId"] = _comicvine_id_from_links(
+                    metadata.get("webLinks"),
+                    4050,
+                )
             self._import_comic_series(series, chapters, read_at, links, counts)
             for chapter in chapters:
                 if int(chapter.get("pagesRead") or 0) > 0:
+                    if self.enable_provider_enrichment and not chapter.get("comicVineId"):
+                        metadata = self.client.chapter_metadata(chapter["id"])
+                        chapter["comicVineId"] = metadata.get("comicVineId")
+                        if not chapter["comicVineId"]:
+                            chapter["comicVineId"] = _comicvine_id_from_links(
+                                metadata.get("webLinks"),
+                                4000,
+                            )
                     self._import_comic_issue(series, chapter, read_at, links, counts)
 
     def _import_comic_series(self, series, chapters, read_at, links, counts):
         """Track the Kavita comic series by its read-issue count."""
         title = series.get("name") or ""
         volume_id = series.get("comicVineId")
+        provider_matching_failed = False
         if not volume_id and self.enable_provider_enrichment and title:
-            volume_id = _search_volume_id(title, self.user)
+            try:
+                volume_id = _search_volume_id(title, self.user)
+            except services.ProviderAPIError as error:
+                if not _provider_unavailable(error):
+                    raise
+                provider_matching_failed = True
+                logger.warning("Comic Vine unavailable while matching series %s", title)
+                self.warnings.append(
+                    f"Comic Vine unavailable; skipped Kavita series {title}",
+                )
+
         volume_id = _comicvine_id(volume_id, 4050)
 
         def resolve():
+            if provider_matching_failed:
+                return None
+            provider_enrichment_failed = False
             if volume_id:
                 try:
                     return _provider_item(
@@ -339,10 +449,41 @@ class KavitaImporter(ReadingServerImporter):
                         self.enable_provider_enrichment,
                     )
                 except services.ProviderAPIError as error:
-                    if not _provider_not_found(error):
+                    if _provider_unavailable(error):
+                        logger.warning(
+                            "Comic Vine unavailable while enriching series %s",
+                            title,
+                        )
+                        self.warnings.append(
+                            f"Comic Vine unavailable; skipped Kavita series {title}",
+                        )
+                        provider_enrichment_failed = True
+                    elif not _provider_not_found(error):
                         raise
-            if self.account.create_missing and title:
-                return self.manual_item(MediaTypes.COMIC, title)
+            if provider_enrichment_failed:
+                return None
+            if self.account.create_missing and title and not self._retrying:
+                self._retry_entries.append(
+                    (
+                        links,
+                        f"series:{series['id']}",
+                        title,
+                        counts,
+                        MediaTypes.COMIC,
+                        resolve,
+                        lambda item: write_reading_progress(
+                            self.user,
+                            item,
+                            app.models.Comic,
+                            progress=read_count,
+                            completed=completed,
+                            read_at=read_at,
+                            started_at=None,
+                            entry_source=ENTRY_SOURCE,
+                        ),
+                    ),
+                )
+                return None
             return None
 
         read_count = sum(1 for chapter in chapters if _is_read(chapter))
@@ -455,6 +596,16 @@ class KavitaImporter(ReadingServerImporter):
         completed = _is_read(chapter)
 
         def resolve():
+            existing = (
+                app.models.Item.objects.filter(
+                    media_type=MediaTypes.COMIC_ISSUE.value,
+                    title__iexact=label,
+                )
+                .order_by("id")
+                .first()
+            )
+            if existing:
+                return existing
             issue_id = chapter.get("comicVineId")
             if (
                 not issue_id
@@ -462,9 +613,30 @@ class KavitaImporter(ReadingServerImporter):
                 and series_name
                 and number
             ):
-                issue_id = _search_issue_id(series_name, number, self.user)
+                try:
+                    volume_id = _comicvine_id(series.get("comicVineId"), 4050)
+                    if volume_id:
+                        issue_id = _volume_issue_id(volume_id, number, self.user)
+                    if not issue_id:
+                        issue_id = _search_issue_id(
+                            series_name,
+                            number,
+                            self.user,
+                        )
+                except services.ProviderAPIError as error:
+                    if not _provider_unavailable(error):
+                        raise
+                    logger.warning(
+                        "Comic Vine unavailable while matching issue %s",
+                        label,
+                    )
+                    self.warnings.append(
+                        f"Comic Vine unavailable; skipped Kavita issue {label}",
+                    )
+                    return None
             issue_id = _comicvine_id(issue_id, 4000)
             item = None
+            provider_enrichment_failed = False
             if issue_id:
                 try:
                     item = _provider_item(
@@ -475,11 +647,45 @@ class KavitaImporter(ReadingServerImporter):
                         self.enable_provider_enrichment,
                     )
                 except services.ProviderAPIError as error:
-                    if not _provider_not_found(error):
+                    if _provider_unavailable(error):
+                        logger.warning(
+                            "Comic Vine unavailable while enriching issue %s",
+                            label,
+                        )
+                        self.warnings.append(
+                            f"Comic Vine unavailable; skipped Kavita issue {label}",
+                        )
+                        provider_enrichment_failed = True
+                    elif not _provider_not_found(error):
                         raise
+            if provider_enrichment_failed:
+                return None
             if item or not self.account.create_missing or not label:
                 return item
-            return self.manual_item(MediaTypes.COMIC_ISSUE, label)
+            if not self._retrying:
+                self._retry_entries.append(
+                    (
+                        links,
+                        f"chapter:{chapter['id']}",
+                        label,
+                        counts,
+                        MediaTypes.COMIC_ISSUE,
+                        resolve,
+                        lambda resolved: write_reading_progress(
+                            self.user,
+                            resolved,
+                            app.models.ComicIssue,
+                            progress=max(pages, page) if completed else page,
+                            completed=completed,
+                            read_at=parse_datetime(chapter.get("lastReadingProgressUtc"))
+                            or read_at,
+                            started_at=None,
+                            entry_source=ENTRY_SOURCE,
+                        ),
+                    ),
+                )
+                return None
+            return None
 
         self.import_entry(
             links,
