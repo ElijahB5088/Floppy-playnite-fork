@@ -437,6 +437,27 @@ class KavitaImporterTests(TestCase):
         self.assertFalse(Item.objects.filter(title__in=["Unmatched Saga", "Unmatched Saga #1"]).exists())
         self.assertEqual(counts["skipped"], 4)
 
+    @patch("integrations.imports.kavita.settings.TESTING", False)
+    @patch("integrations.imports.kavita._search_issue_id", return_value=None)
+    @patch("integrations.imports.kavita._search_volume_id", return_value=None)
+    def test_unmatched_comic_issue_is_not_created_as_blank_item(
+        self,
+        _mock_volume,
+        _mock_issue,
+    ):
+        series = _series(2, name="Absolute Superman")
+        chapters = [_chapter(21, pages_read=20, number=1)]
+
+        self._sync([series], {2: _detail(COMIC, chapters)})
+
+        self.assertFalse(
+            Item.objects.filter(
+                media_type=MediaTypes.COMIC_ISSUE.value,
+                title="Absolute Superman #1",
+            ).exists(),
+        )
+        self.assertFalse(ComicIssue.objects.filter(user=self.user).exists())
+
     def test_existing_comic_issue_title_is_reused_before_manual_fallback(self):
         existing = Item.objects.create(
             media_id=Item.generate_manual_id(),

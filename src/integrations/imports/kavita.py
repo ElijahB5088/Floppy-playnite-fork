@@ -660,32 +660,9 @@ class KavitaImporter(ReadingServerImporter):
                         raise
             if provider_enrichment_failed:
                 return None
-            if item or not self.account.create_missing or not label:
-                return item
-            if not self._retrying:
-                self._retry_entries.append(
-                    (
-                        links,
-                        f"chapter:{chapter['id']}",
-                        label,
-                        counts,
-                        MediaTypes.COMIC_ISSUE,
-                        resolve,
-                        lambda resolved: write_reading_progress(
-                            self.user,
-                            resolved,
-                            app.models.ComicIssue,
-                            progress=max(pages, page) if completed else page,
-                            completed=completed,
-                            read_at=parse_datetime(chapter.get("lastReadingProgressUtc"))
-                            or read_at,
-                            started_at=None,
-                            entry_source=ENTRY_SOURCE,
-                        ),
-                    ),
-                )
-                return None
-            return None
+            # Do not create title-only issue items when Comic Vine cannot
+            # identify the chapter; those placeholders are easy to mis-match.
+            return item
 
         self.import_entry(
             links,
