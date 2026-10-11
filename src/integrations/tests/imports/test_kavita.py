@@ -461,6 +461,23 @@ class KavitaImporterTests(TestCase):
             ).exists(),
         )
 
+    @patch("integrations.imports.kavita.settings.TESTING", False)
+    @patch("integrations.imports.kavita._volume_issue_id", return_value=None)
+    @patch("integrations.imports.kavita._search_volume_id", return_value="900")
+    def test_known_comic_volume_does_not_create_manual_issue_on_unresolved_number(
+        self,
+        _mock_volume_search,
+        _mock_issue,
+    ):
+        series = _series(2, name="Absolute Superman")
+        chapters = [_chapter(21, pages_read=20, number=9)]
+
+        counts, _warnings = self._sync([series], {2: _detail(COMIC, chapters)})
+
+        self.assertFalse(ComicIssue.objects.filter(user=self.user).exists())
+        self.assertFalse(Item.objects.filter(title="Absolute Superman #9").exists())
+        self.assertEqual(counts["skipped"], 2)
+
     def test_existing_comic_issue_title_is_reused_before_manual_fallback(self):
         existing = Item.objects.create(
             media_id=Item.generate_manual_id(),
