@@ -604,11 +604,13 @@ class KavitaImporter(ReadingServerImporter):
                 .order_by("id")
                 .first()
             )
-            if existing:
+            manual_existing = (
+                existing if existing and existing.source == Sources.MANUAL.value else None
+            )
+            if existing and manual_existing is None:
                 return existing
             issue_id = chapter.get("comicVineId")
             volume_id = _comicvine_id(series.get("comicVineId"), 4050)
-            has_provider_identity = bool(issue_id)
             if (
                 self.enable_provider_enrichment
                 and series_name
@@ -661,11 +663,13 @@ class KavitaImporter(ReadingServerImporter):
                     elif not _provider_not_found(error):
                         raise
             if provider_enrichment_failed:
-                return None
-            if (volume_id or has_provider_identity) and item is None:
-                return None
+                return manual_existing
+            if (volume_id or chapter.get("comicVineId")) and item is None:
+                return manual_existing
             if item or not self.account.create_missing or not label:
-                return item
+                return item or manual_existing
+            if manual_existing:
+                return manual_existing
             if not self._retrying:
                 self._retry_entries.append(
                     (
@@ -691,6 +695,10 @@ class KavitaImporter(ReadingServerImporter):
                 return None
             return self.manual_item(MediaTypes.COMIC_ISSUE, label)
 
+        linked_manual = (
+            links.get(f"chapter:{chapter['id']}")
+            and links[f"chapter:{chapter['id']}"].item.source == Sources.MANUAL.value
+        )
         self.import_entry(
             links,
             f"chapter:{chapter['id']}",
@@ -709,4 +717,5 @@ class KavitaImporter(ReadingServerImporter):
                 started_at=None,
                 entry_source=ENTRY_SOURCE,
             ),
+            force_resolve=linked_manual,
         )
