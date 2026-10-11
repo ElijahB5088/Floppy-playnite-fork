@@ -12,7 +12,7 @@ from django_celery_beat.models import PeriodicTask
 from app.models import Book, Comic, ComicIssue, Item, Manga, MediaTypes, Sources, Status
 from app.providers.services import ProviderAPIError
 from integrations.imports import helpers, kavita
-from integrations.models import KavitaAccount
+from integrations.models import KavitaAccount, KavitaLink
 
 # Shapes follow Kavita's OpenAPI (v0.9.1.6): SeriesDto carries the external
 # ids and pagesRead; SeriesDetailDto carries volumes/chapters with pagesRead.
@@ -500,6 +500,47 @@ class KavitaImporterTests(TestCase):
             ).count(),
             1,
         )
+
+    @patch("integrations.imports.kavita.settings.TESTING", False)
+    @patch("integrations.imports.kavita._volume_issue_id", return_value="1114005")
+    @patch("integrations.imports.kavita.services.get_media_metadata")
+    def test_linked_manual_issue_is_upgraded_to_provider_item(
+        self,
+        mock_metadata,
+        _mock_volume_issue,
+    ):
+        manual = Item.objects.create(
+            media_id=Item.generate_manual_id(),
+            source=Sources.MANUAL.value,
+            media_type=MediaTypes.COMIC_ISSUE.value,
+            library_media_type=MediaTypes.COMIC_ISSUE.value,
+            title="Absolute Superman #8",
+        )
+        KavitaLink.objects.create(
+            user=self.user,
+            kavita_key="chapter:665",
+            item=manual,
+        )
+        mock_metadata.return_value = {
+            "media_id": "1114005",
+            "source": Sources.COMICVINE.value,
+            "media_type": MediaTypes.COMIC_ISSUE.value,
+            "title": "Absolute Superman #8",
+            "image": "cover.jpg",
+            "synopsis": "Synopsis",
+            "details": {},
+        }
+        series = _series(2, name="Absolute Superman", comicVineId="160860")
+        chapters = [_chapter(665, pages_read=26, number=8)]
+
+        self._sync([series], {2: _detail(COMIC, chapters)})
+
+        self.assertFalse(ComicIssue.objects.filter(user=self.user, item=manual).exists())
+        self.assertTrue(
+            ComicIssue.objects.filter(user=self.user, item__media_id="1114005").exists(),
+        )
+        manual.refresh_from_db()
+        self.assertFalse(KavitaLink.objects.filter(item=manual).exists())
 
     def test_book_is_matched_by_isbn_and_tracks_pages(self):
         item = Item.objects.create(
