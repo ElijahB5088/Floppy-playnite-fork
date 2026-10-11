@@ -608,16 +608,17 @@ class KavitaImporter(ReadingServerImporter):
                 return existing
             issue_id = chapter.get("comicVineId")
             if (
-                not issue_id
-                and self.enable_provider_enrichment
+                self.enable_provider_enrichment
                 and series_name
                 and number
             ):
                 try:
                     volume_id = _comicvine_id(series.get("comicVineId"), 4050)
                     if volume_id:
+                        # Prefer the issue number in the known volume over a
+                        # stale or unrelated chapter ID from Kavita.
                         issue_id = _volume_issue_id(volume_id, number, self.user)
-                    if not issue_id:
+                    elif not issue_id:
                         issue_id = _search_issue_id(
                             series_name,
                             number,
@@ -660,9 +661,32 @@ class KavitaImporter(ReadingServerImporter):
                         raise
             if provider_enrichment_failed:
                 return None
-            # Do not create title-only issue items when Comic Vine cannot
-            # identify the chapter; those placeholders are easy to mis-match.
-            return item
+            if item or not self.account.create_missing or not label:
+                return item
+            if not self._retrying:
+                self._retry_entries.append(
+                    (
+                        links,
+                        f"chapter:{chapter['id']}",
+                        label,
+                        counts,
+                        MediaTypes.COMIC_ISSUE,
+                        resolve,
+                        lambda resolved: write_reading_progress(
+                            self.user,
+                            resolved,
+                            app.models.ComicIssue,
+                            progress=max(pages, page) if completed else page,
+                            completed=completed,
+                            read_at=parse_datetime(chapter.get("lastReadingProgressUtc"))
+                            or read_at,
+                            started_at=None,
+                            entry_source=ENTRY_SOURCE,
+                        ),
+                    ),
+                )
+                return None
+            return self.manual_item(MediaTypes.COMIC_ISSUE, label)
 
         self.import_entry(
             links,

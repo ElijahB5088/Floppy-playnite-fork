@@ -422,7 +422,7 @@ class KavitaImporterTests(TestCase):
 
     @patch("integrations.imports.kavita._search_volume_id", return_value=None)
     @patch("integrations.imports.kavita._search_issue_id", return_value=None)
-    def test_unmatched_comic_does_not_create_blank_metadata_items(
+    def test_unmatched_comic_uses_manual_items_as_last_fallback(
         self,
         _mock_issue,
         _mock_volume,
@@ -433,14 +433,15 @@ class KavitaImporterTests(TestCase):
         counts, _warnings = self._sync([series], {2: _detail(COMIC, chapters)})
 
         self.assertFalse(Comic.objects.filter(user=self.user).exists())
-        self.assertFalse(ComicIssue.objects.filter(user=self.user).exists())
-        self.assertFalse(Item.objects.filter(title__in=["Unmatched Saga", "Unmatched Saga #1"]).exists())
-        self.assertEqual(counts["skipped"], 4)
+        issue = ComicIssue.objects.get(user=self.user)
+        self.assertEqual(issue.item.source, Sources.MANUAL.value)
+        self.assertEqual(issue.item.title, "Unmatched Saga #1")
+        self.assertEqual(counts["created"], 1)
 
     @patch("integrations.imports.kavita.settings.TESTING", False)
     @patch("integrations.imports.kavita._search_issue_id", return_value=None)
     @patch("integrations.imports.kavita._search_volume_id", return_value=None)
-    def test_unmatched_comic_issue_is_not_created_as_blank_item(
+    def test_unmatched_comic_issue_uses_manual_fallback_after_provider_matching(
         self,
         _mock_volume,
         _mock_issue,
@@ -450,13 +451,15 @@ class KavitaImporterTests(TestCase):
 
         self._sync([series], {2: _detail(COMIC, chapters)})
 
+        issue = ComicIssue.objects.get(user=self.user)
+        self.assertEqual(issue.item.source, Sources.MANUAL.value)
+        self.assertEqual(issue.item.title, "Absolute Superman #1")
         self.assertFalse(
             Item.objects.filter(
+                source=Sources.COMICVINE.value,
                 media_type=MediaTypes.COMIC_ISSUE.value,
-                title="Absolute Superman #1",
             ).exists(),
         )
-        self.assertFalse(ComicIssue.objects.filter(user=self.user).exists())
 
     def test_existing_comic_issue_title_is_reused_before_manual_fallback(self):
         existing = Item.objects.create(
