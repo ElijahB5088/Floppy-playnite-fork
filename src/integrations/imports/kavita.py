@@ -617,9 +617,9 @@ class KavitaImporter(ReadingServerImporter):
                 and number
             ):
                 try:
-                    if volume_id:
+                    if volume_id and not issue_id:
                         # Prefer the issue number in the known volume over a
-                        # stale or unrelated chapter ID from Kavita.
+                        # missing chapter ID from Kavita.
                         issue_id = _volume_issue_id(volume_id, number, self.user)
                     elif not issue_id:
                         issue_id = _search_issue_id(
