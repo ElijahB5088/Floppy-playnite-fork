@@ -607,13 +607,14 @@ class KavitaImporter(ReadingServerImporter):
             if existing:
                 return existing
             issue_id = chapter.get("comicVineId")
+            volume_id = _comicvine_id(series.get("comicVineId"), 4050)
+            has_provider_identity = bool(issue_id)
             if (
                 self.enable_provider_enrichment
                 and series_name
                 and number
             ):
                 try:
-                    volume_id = _comicvine_id(series.get("comicVineId"), 4050)
                     if volume_id:
                         # Prefer the issue number in the known volume over a
                         # stale or unrelated chapter ID from Kavita.
@@ -660,6 +661,8 @@ class KavitaImporter(ReadingServerImporter):
                     elif not _provider_not_found(error):
                         raise
             if provider_enrichment_failed:
+                return None
+            if (volume_id or has_provider_identity) and item is None:
                 return None
             if item or not self.account.create_missing or not label:
                 return item

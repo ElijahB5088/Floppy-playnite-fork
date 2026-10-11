@@ -461,6 +461,31 @@ class KavitaImporterTests(TestCase):
             ).exists(),
         )
 
+    @patch(
+        "integrations.imports.kavita._provider_item",
+        side_effect=ProviderAPIError(
+            Sources.COMICVINE.value,
+            requests.HTTPError(),
+            confirmed_absent=True,
+        ),
+    )
+    def test_invalid_kavita_issue_identity_is_not_converted_to_manual_item(
+        self,
+        _mock_provider_item,
+    ):
+        series = _series(2, name="Absolute Superman")
+        chapters = [
+            _chapter(21, pages_read=20, number=1, comicVineId="999999"),
+        ]
+
+        counts, _warnings = self._sync([series], {2: _detail(COMIC, chapters)})
+
+        self.assertFalse(ComicIssue.objects.filter(user=self.user).exists())
+        self.assertFalse(
+            Item.objects.filter(title="Absolute Superman #1").exists(),
+        )
+        self.assertEqual(counts["skipped"], 2)
+
     def test_existing_comic_issue_title_is_reused_before_manual_fallback(self):
         existing = Item.objects.create(
             media_id=Item.generate_manual_id(),
