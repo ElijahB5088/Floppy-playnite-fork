@@ -1,6 +1,9 @@
 """Video play upsert."""
 
+from unittest.mock import patch
+
 from django.urls import reverse
+from django.utils import timezone
 
 from app import history_cache
 from app.history_cache_day_builder import build_history_day
@@ -194,6 +197,36 @@ class VideoPlayApiTests(FloppyApiTestCase):
         response = self._post(thumbnailUrl="http://i.ytimg.com/vi/vid1/mqdefault.jpg")
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Item.objects.get(media_id="vid1").image, "")
+
+    def test_a_thumbnail_for_another_video_is_ignored(self):
+        """A poster is only kept when its URL names the video being posted."""
+        response = self._post(thumbnailUrl="https://i.ytimg.com/vi/other/mqdefault.jpg")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(Item.objects.get(media_id="vid1").image, "")
+        self._post(thumbnailUrl="https://i.ytimg.com/an/vid1/avatar.jpg")
+        self.assertEqual(Item.objects.get(media_id="vid1").image, "")
+
+    def test_a_new_poster_refreshes_history_for_other_viewers(self):
+        """The poster is on the shared item, so every viewer's cached days go stale."""
+        item = Item.objects.create(
+            media_id="vid1",
+            source="youtube",
+            media_type=MediaTypes.VIDEO.value,
+            library_media_type=MediaTypes.VIDEO.value,
+            title="A Video",
+        )
+        other = Video.objects.create(item=item, user=self.user2)
+        other.upsert_play("youtube:vid1:2026-09-01", 900, end_date=timezone.now())
+        with patch(
+            "api.fork_views_video.history_cache.invalidate_history_days",
+        ) as invalidate:
+            self._post(thumbnailUrl="https://i.ytimg.com/vi/vid1/mqdefault.jpg")
+        poster_calls = [
+            call
+            for call in invalidate.call_args_list
+            if call.kwargs.get("reason") == "video_poster_change"
+        ]
+        self.assertEqual([call.args[0] for call in poster_calls], [self.user2.id])
 
     def test_plays_on_the_same_day_list_the_latest_post_first(self):
         """YouTube only gives a day, so the plays tie and the later post wins."""
