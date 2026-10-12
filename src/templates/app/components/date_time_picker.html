@@ -47,7 +47,6 @@
               x-ref="trigger"
               x-show="hasValue"
               x-cloak
-              :class="{ 'date-picker-trigger-autofilled': isAutoFilled }"
               @click="togglePicker()"
               aria-haspopup="dialog"
               :aria-expanded="open"
@@ -56,11 +55,12 @@
         <span class="truncate" x-text="displayText"></span>
       </button>
       <div class="date-picker-quick-actions"
-           x-show="!hasValue || isAutoFilled"
+           x-show="!hasValue"
            x-cloak
            role="group"
            aria-label="{% blocktranslate trimmed with value_1=translated_field_label %}{{ value_1 }} quick actions{% endblocktranslate %}">
-        <span class="date-picker-empty-label" x-show="!hasValue">{% translate "Not set" %}</span>
+        <span class="date-picker-empty-label" x-show="!defaultsToNow">{% translate "Not set" %}</span>
+        <span class="date-picker-empty-label" x-show="defaultsToNow" x-cloak>{% translate "Defaults to now" %}</span>
         {% if quick_action_mode != "end" %}
           <button type="button"
                   @click="applyQuickAction('start-now')"

@@ -1261,8 +1261,8 @@ class IntegrationTest(SerialStaticLiveServerTestCase):
             (end_dt - timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M"),
         )
 
-    def _open_new_movie_tracker(self, status):
-        """Open the Add to tracker modal on the movie page and pick a status."""
+    def _open_new_movie_tracker(self, status=None):
+        """Open the Add to tracker modal on the movie page, optionally pick a status."""
         self.page.goto(
             self.live_server_url
             + reverse(
@@ -1279,22 +1279,11 @@ class IntegrationTest(SerialStaticLiveServerTestCase):
         self.page.get_by_role("button", name="Add to tracker").click()
         modal = self.page.locator("[data-track-modal-root]:visible").first
         expect(modal).to_be_visible()
-        modal.locator('select[name="status"]').select_option(status)
+        if status:
+            modal.locator('select[name="status"]').select_option(status)
         return modal
 
-    def _ms(self, value):
-        """Milliseconds since epoch for a datetime-local input value."""
-        return self.page.evaluate("value => new Date(value).getTime()", value)
-
-    @patch("app.providers.services.get_media_metadata")
-    def test_track_modal_autofilled_end_date_does_not_block_shortcuts(
-        self,
-        mock_get_metadata,
-    ):
-        """An end date the modal filled in is a default: shortcuts still apply.
-
-        A date the user picked is still left alone.
-        """
+    def _create_test_movie_item(self, mock_get_metadata):
         mock_get_metadata.return_value = {
             "media_id": "238",
             "title": "Test Movie",
@@ -1307,7 +1296,7 @@ class IntegrationTest(SerialStaticLiveServerTestCase):
             "details": {"release_date": "2019-11-08"},
             "related": {},
         }
-        Item.objects.create(
+        return Item.objects.create(
             media_id="238",
             source=Sources.TMDB.value,
             media_type=MediaTypes.MOVIE.value,
@@ -1315,17 +1304,43 @@ class IntegrationTest(SerialStaticLiveServerTestCase):
             image="http://example.com/image.jpg",
             runtime_minutes=95,
         )
+
+    def _saved_movie(self, item):
+        """Return the saved Movie once the modal's HTMX save has landed."""
+        movie = None
+        for _ in range(50):
+            movie = Movie.objects.filter(item=item, user=self.user).first()
+            if movie:
+                break
+            self.page.wait_for_timeout(200)
+        self.assertIsNotNone(movie, "The track modal never saved the movie")
+        return movie
+
+    def _ms(self, value):
+        """Milliseconds since epoch for a datetime-local input value."""
+        return self.page.evaluate("value => new Date(value).getTime()", value)
+
+    @patch("app.providers.services.get_media_metadata")
+    def test_track_modal_end_date_stays_empty_so_shortcuts_apply(
+        self,
+        mock_get_metadata,
+    ):
+        """The modal doesn't pre-fill the End date, so both shortcuts keep working.
+
+        A date the user picked is still left alone.
+        """
+        self._create_test_movie_item(mock_get_metadata)
         runtime_ms = 95 * 60 * 1000
 
-        # Completed fills the end date, and Just Finished is still offered.
+        # Completed leaves the End date empty and says what saving will do.
         modal = self._open_new_movie_tracker(Status.COMPLETED.value)
         end_input = modal.locator('input[name="end_date"]')
         start_input = modal.locator('input[name="start_date"]')
         end_actions = modal.get_by_role("group", name="End date quick actions")
-        start_actions = modal.get_by_role("group", name="Start date quick actions")
-        expect(end_input).not_to_have_value("")
+        expect(end_input).to_have_value("")
         expect(start_input).to_have_value("")
         expect(end_actions).to_be_visible()
+        expect(end_actions).to_contain_text("Defaults to now")
 
         # Just Finished sets the end to now and the start a runtime earlier.
         before = self.page.evaluate("Date.now()")
@@ -1337,9 +1352,8 @@ class IntegrationTest(SerialStaticLiveServerTestCase):
         self.assertLessEqual(end_ms, after + 1000)
         self.assertGreaterEqual(start_ms, before - runtime_ms - 1000)
         self.assertLessEqual(start_ms, after - runtime_ms + 1000)
-        expect(end_actions).not_to_be_visible()
 
-        # Start Now replaces the auto-filled end with now plus the runtime.
+        # Start Now sets the start to now and the end to now plus the runtime.
         modal = self._open_new_movie_tracker(Status.COMPLETED.value)
         end_input = modal.locator('input[name="end_date"]')
         start_input = modal.locator('input[name="start_date"]')
@@ -1365,12 +1379,7 @@ class IntegrationTest(SerialStaticLiveServerTestCase):
         modal.get_by_role("button", name="Open End date picker").click()
         end_picker = modal.get_by_role("dialog", name="End date picker")
         end_picker.get_by_role("button", name="Release Date", exact=True).click()
-        expect(end_input).to_have_value(
-            re.compile(r"^2019-11-08T"),
-        )
-        expect(
-            modal.get_by_role("group", name="End date quick actions")
-        ).not_to_be_visible()
+        expect(end_input).to_have_value(re.compile(r"^2019-11-08T"))
         # Picking a release date back-fills the start from the runtime; clear it
         # so the Start Now shortcut is offered again.
         modal.locator(".date-picker-closed-field").first.get_by_role(
@@ -1382,17 +1391,56 @@ class IntegrationTest(SerialStaticLiveServerTestCase):
         expect(end_input).to_have_value(re.compile(r"^2019-11-08T"))
 
     @patch("app.models.Item.fetch_releases")
+    @patch("app.providers.services.get_media_metadata")
+    def test_track_modal_untouched_end_date_saves_as_now(
+        self,
+        mock_get_metadata,
+        _mock_fetch_releases,
+    ):
+        """A new Completed entry still gets an end date of now when saved.
+
+        Choosing None keeps it empty.
+        """
+        item = self._create_test_movie_item(mock_get_metadata)
+
+        modal = self._open_new_movie_tracker(Status.COMPLETED.value)
+        expect(modal.locator('input[name="end_date"]')).to_have_value("")
+        before = timezone.now()
+        modal.get_by_role("button", name="Add", exact=True).click()
+        expect(self.page.locator("[data-track-modal-root]:visible")).to_have_count(0)
+        movie = self._saved_movie(item)
+        self.assertIsNotNone(movie.end_date)
+        self.assertGreaterEqual(movie.end_date, before - timedelta(minutes=1))
+        self.assertLessEqual(movie.end_date, timezone.now() + timedelta(minutes=1))
+        movie.delete()
+
+        modal = self._open_new_movie_tracker(Status.COMPLETED.value)
+        modal.get_by_role("button", name="Open End date picker").click()
+        modal.get_by_role("dialog", name="End date picker").get_by_role(
+            "button",
+            name="None",
+            exact=True,
+        ).click()
+        expect(modal.get_by_role("group", name="End date quick actions")).to_contain_text(
+            "Not set",
+        )
+        modal.get_by_role("button", name="Add", exact=True).click()
+        expect(self.page.locator("[data-track-modal-root]:visible")).to_have_count(0)
+        movie = self._saved_movie(item)
+        self.assertIsNone(movie.end_date)
+
+    @patch("app.models.Item.fetch_releases")
     @patch("app.views._should_queue_game_lengths_refresh", return_value=False)
     @patch("app.providers.services.get_media_metadata")
-    def test_game_progress_start_date_survives_just_finished(
+    def test_game_progress_fills_end_and_start_dates(
         self,
         mock_get_metadata,
         _mock_should_queue_game_lengths_refresh,
         _mock_fetch_releases,
     ):
-        """New game entry: progress still derives the start from the end date.
+        """New game entry: typing progress sets the end to now and the start before it.
 
-        Just Finished moves the end to now without throwing that start away.
+        Just Finished afterwards keeps the start about the progress earlier.
         """
         mock_get_metadata.return_value = {
             "media_id": "186090",
@@ -1433,26 +1481,16 @@ class IntegrationTest(SerialStaticLiveServerTestCase):
 
         end_input = modal.locator('input[name="end_date"]')
         start_input = modal.locator('input[name="start_date"]')
-        expect(end_input).not_to_have_value("")
+        expect(end_input).to_have_value("")
+        before = self.page.evaluate("Date.now()")
         modal.locator('input[name="progress"]').fill("90min")
         expect(start_input).not_to_have_value("")
-        auto_start_ms = self._ms(start_input.input_value())
+        after = self.page.evaluate("Date.now()")
         auto_end_ms = self._ms(end_input.input_value())
+        auto_start_ms = self._ms(start_input.input_value())
+        self.assertGreaterEqual(auto_end_ms, before - 60 * 1000)
+        self.assertLessEqual(auto_end_ms, after + 1000)
         self.assertEqual(auto_end_ms - auto_start_ms, 90 * 60 * 1000)
-
-        modal.get_by_role("group", name="End date quick actions").get_by_role(
-            "button",
-            name="Just Finished",
-            exact=True,
-        ).click()
-        end_ms = self._ms(end_input.input_value())
-        start_ms = self._ms(start_input.input_value())
-        self.assertGreaterEqual(end_ms, auto_end_ms)
-        # Still about 90 minutes before the end, not collapsed onto it.
-        self.assertAlmostEqual(end_ms - start_ms, 90 * 60 * 1000, delta=60 * 1000)
-        expect(modal.locator('select[name="status"]')).to_have_value(
-            Status.COMPLETED.value,
-        )
 
     def test_statistics_status_composition_legend_scrolls_without_page_overflow(self):
         """Status legend scrolls inside its card at responsive widths."""
