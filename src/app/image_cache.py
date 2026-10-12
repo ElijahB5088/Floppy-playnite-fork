@@ -56,6 +56,10 @@ APPROVED_IMAGE_HOSTS = frozenset(
         "cdn2.steamgriddb.com",
         "cdn.thegamesdb.net",
         "thumbnails.libretro.com",
+        # YouTube thumbnails. img.youtube.com redirects to i.ytimg.com, and
+        # each redirect hop is checked against this list.
+        "i.ytimg.com",
+        "img.youtube.com",
     },
 )
 APPROVED_IMAGE_HOST_SUFFIXES = (
