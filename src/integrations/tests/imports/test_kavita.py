@@ -12,7 +12,7 @@ from django_celery_beat.models import PeriodicTask
 from app.models import Book, Comic, ComicIssue, Item, Manga, MediaTypes, Sources, Status
 from app.providers.services import ProviderAPIError
 from integrations.imports import helpers, kavita
-from integrations.models import KavitaAccount, KavitaLink
+from integrations.models import ImportRun, KavitaAccount, KavitaLink
 
 # Shapes follow Kavita's OpenAPI (v0.9.1.6): SeriesDto carries the external
 # ids and pagesRead; SeriesDetailDto carries volumes/chapters with pagesRead.
@@ -114,6 +114,18 @@ class KavitaImporterTests(TestCase):
         self.assertEqual(counts["created"], 1)
         self.assertEqual(counts[MediaTypes.MANGA.value], 1)
         self.assertEqual(warnings, "")
+
+    @patch("integrations.imports.reading_server.import_progress.get_current_import_run_id")
+    def test_reading_progress_records_the_active_import_run(self, mock_run_id):
+        run = ImportRun.objects.create(user=self.user, source="kavita")
+        mock_run_id.return_value = run.id
+        series = _series(2, name="Saga")
+        chapters = [_chapter(21, pages_read=20, number=1, comicVineId="301")]
+
+        self._sync([series], {2: _detail(COMIC, chapters)})
+
+        issue = ComicIssue.objects.get(user=self.user, item__media_id="301")
+        self.assertEqual(issue.import_run_id, run.id)
 
     def test_sync_authenticates_with_the_api_key_then_sends_the_token(self):
         self._sync([_series(1, malId=13)], {1: _detail(MANGA, [])})
