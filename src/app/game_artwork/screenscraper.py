@@ -57,7 +57,12 @@ def _request_credentials():
         return None
     ssid = credentials.get(PROVIDER, "ssid")
     sspassword = credentials.get(PROVIDER, "sspassword")
-    if ssid and sspassword:
+    # Each field resolves on its own, so half a personal login could pair with
+    # the instance's other half. A login only counts when both come from one tier.
+    same_tier = credentials.source_of(PROVIDER, "ssid") == credentials.source_of(
+        PROVIDER, "sspassword"
+    )
+    if ssid and sspassword and same_tier:
         base = {**base, "ssid": ssid, "sspassword": sspassword}
     return base
 

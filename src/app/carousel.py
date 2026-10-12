@@ -14,7 +14,7 @@ from django.core.cache import cache
 
 from app.image_cache import rewrite_image_url
 from app.models import GameArtwork, MediaTypes, Sources
-from app.providers import tmdb
+from app.providers import services, tmdb
 
 logger = logging.getLogger(__name__)
 
@@ -53,10 +53,18 @@ def confirmed_empty(media_type, source, media_id, *, season_number=None) -> bool
                 (data.get("backdrop_path") or data["photos"]) and data.get("logos")
             )
     elif source == Sources.IGDB.value and media_type == MediaTypes.GAME.value:
+        from app.game_artwork import is_stale
+
         data = cache.get(f"igdb_carousel_v4_{media_id}")
-        has_overview = data is not None and GameArtwork.objects.filter(
+        row = GameArtwork.objects.filter(
             source=Sources.IGDB.value, media_id=str(media_id)
-        ).exclude(logo_url="").exclude(backdrop_url="").exists()
+        ).first()
+        # No row, or one old enough to be looked up again, means the artwork
+        # was never settled (a provider error stores nothing), so the carousel
+        # must still load and retry rather than render as empty.
+        if row is None or is_stale(row):
+            return False
+        has_overview = bool(row.logo_url and row.backdrop_url)
     else:
         return False
     return (
@@ -148,7 +156,10 @@ def resolve_carousel_media(media_type, source, media_id, *, season_number=None) 
     if source == Sources.IGDB.value and media_type == MediaTypes.GAME.value:
         from lists.models import CustomList
 
-        data = CustomList()._get_igdb_carousel_media(media_id)
+        # A visitor is waiting on this fragment: fail fast on a slow or
+        # rate-limited provider instead of holding the web worker.
+        with services.interactive_request_scope():
+            data = CustomList()._get_igdb_carousel_media(media_id)
         photos = [
             {
                 # t_screenshot_big_2x and similar named IGDB transforms crop to a
@@ -161,7 +172,8 @@ def resolve_carousel_media(media_type, source, media_id, *, season_number=None) 
             }
             for image_id in data["photos"]
         ]
-        artwork = _game_artwork(media_id, data.get("hero_image_id"))
+        with services.interactive_request_scope():
+            artwork = _game_artwork(media_id, data.get("hero_image_id"))
         backdrop, logo = artwork["backdrop"], artwork["logo"]
         overview = None
         if backdrop and logo:

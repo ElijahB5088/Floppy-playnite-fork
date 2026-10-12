@@ -104,7 +104,8 @@ def _search(query):
     return found, errored
 
 
-def _is_stale(row):
+def is_stale(row):
+    """Return whether a stored row is old enough to be looked up again."""
     complete = bool(row.logo_url) and row.backdrop_provider not in ("", IGDB_PROVIDER)
     ttl = COMPLETE_TTL if complete else INCOMPLETE_TTL
     return timezone.now() - row.resolved_at > ttl
@@ -131,7 +132,7 @@ def resolve(query, *, fallback_backdrop=None):
         source=Sources.IGDB.value,
         media_id=query.media_id,
     ).first()
-    if row is None or _is_stale(row):
+    if row is None or is_stale(row):
         if cache.get(_error_key(query.media_id)):
             found, errored = {}, False
         else:

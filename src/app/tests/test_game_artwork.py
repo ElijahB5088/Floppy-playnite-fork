@@ -246,6 +246,41 @@ class ScreenScraperTests(TestCase):
         self.assertEqual(mock_api.call_args.kwargs["params"]["ssid"], "me")
 
     @override_settings(**DEV)
+    def test_half_a_personal_login_is_not_paired_with_the_instance_login(self):
+        from django.contrib.auth import get_user_model
+
+        from app.providers import credentials
+
+        user = get_user_model().objects.create_user(username="half", password="x")
+        credentials.set_user("screenscraper", user, {"ssid": "me"})
+        cache.clear()
+        mixed = {"SCREENSCRAPER_SSPASSWORD": "instance-pw"}
+
+        with override_settings(**mixed), credentials.current_user_scope(user):
+            sent = screenscraper._request_credentials()
+
+        self.assertNotIn("ssid", sent)
+        self.assertNotIn("sspassword", sent)
+
+    @override_settings(**DEV)
+    def test_a_login_from_one_tier_is_sent_whole(self):
+        both = {"SCREENSCRAPER_SSID": "inst", "SCREENSCRAPER_SSPASSWORD": "instance-pw"}
+
+        with override_settings(**both):
+            sent = screenscraper._request_credentials()
+
+        self.assertEqual((sent["ssid"], sent["sspassword"]), ("inst", "instance-pw"))
+
+    def test_the_settings_validator_requires_the_whole_login(self):
+        from app.providers import credentials
+
+        validate = credentials.get_spec("screenscraper").validator
+
+        self.assertIsNotNone(validate({"ssid": "me", "sspassword": ""}))
+        self.assertIsNotNone(validate({"ssid": "", "sspassword": "pw"}))
+        self.assertIsNone(validate({"ssid": "me", "sspassword": "pw"}))
+
+    @override_settings(**DEV)
     def test_a_different_game_name_is_not_accepted(self):
         with patch(API, return_value=RESPONSE):
             self.assertEqual(screenscraper.find(query(title="Other Game", platforms=(SNES,)), [LOGO]), {})

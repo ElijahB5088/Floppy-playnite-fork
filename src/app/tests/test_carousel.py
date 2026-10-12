@@ -1,13 +1,15 @@
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.core.cache import cache
 from django.template.loader import render_to_string
 from django.test import SimpleTestCase, TestCase
+from django.utils import timezone
 
 from app import carousel
 from app.game_artwork.base import Art
-from app.models import MediaTypes, Sources
-from app.providers import tmdb
+from app.models import GameArtwork, MediaTypes, Sources
+from app.providers import services, tmdb
 
 IGDB_HERO = Art(
     "https://images.igdb.com/igdb/image/upload/t_1080p/art1.jpg", "igdb", "art1"
@@ -327,6 +329,67 @@ class CarouselOverviewTests(SimpleTestCase):
         self.assertIn("detail-mobile-hero__sharp", text_only)
         self.assertNotIn("detail-mobile-hero__logo", text_only)
         self.assertNotIn("detail-mobile-hero", without)
+
+
+class GameCarouselRetryTests(TestCase):
+    """A game counts as empty only once its artwork lookup settled."""
+
+    def setUp(self):
+        cache.set("igdb_carousel_v4_123", {"video": None, "photos": []}, 60)
+
+    def tearDown(self):
+        cache.clear()
+        super().tearDown()
+
+    def empty(self):
+        return carousel.confirmed_empty(MediaTypes.GAME.value, Sources.IGDB.value, "123")
+
+    def row(self, **overrides):
+        values = {"source": Sources.IGDB.value, "media_id": "123"}
+        return GameArtwork.objects.create(**{**values, **overrides})
+
+    def test_no_row_means_the_lookup_may_still_run(self):
+        # A provider error stores nothing, so the page must still ask again.
+        self.assertFalse(self.empty())
+
+    def test_a_fresh_miss_is_confirmed_empty(self):
+        self.row()
+
+        self.assertTrue(self.empty())
+
+    def test_an_old_miss_is_looked_up_again(self):
+        row = self.row()
+        GameArtwork.objects.filter(pk=row.pk).update(
+            resolved_at=timezone.now() - timedelta(days=1)
+        )
+
+        self.assertFalse(self.empty())
+
+    def test_a_game_with_a_logo_and_backdrop_is_not_empty(self):
+        self.row(logo_url="https://x/logo.png", backdrop_url="https://x/hero.jpg")
+
+        self.assertFalse(self.empty())
+
+    @patch("app.carousel._game_artwork")
+    @patch("lists.models.CustomList._get_igdb_carousel_media")
+    def test_the_lookup_runs_in_the_interactive_request_scope(self, mock_media, mock_artwork):
+        seen = []
+
+        def media(_media_id):
+            seen.append(services._interactive_request.get())
+            return {"video": None, "photos": ["shot"], "hero_image_id": None}
+
+        def artwork(*_args):
+            seen.append(services._interactive_request.get())
+            return {"logo": None, "backdrop": None}
+
+        mock_media.side_effect = media
+        mock_artwork.side_effect = artwork
+
+        carousel.resolve_carousel_media(MediaTypes.GAME.value, Sources.IGDB.value, "123")
+
+        self.assertEqual(seen, [True, True])
+        self.assertFalse(services._interactive_request.get())
 
 
 class IgdbCarouselOverviewTests(TestCase):

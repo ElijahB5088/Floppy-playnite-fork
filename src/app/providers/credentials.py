@@ -249,6 +249,13 @@ def _validate_thegamesdb(values):
     )
 
 
+def _validate_screenscraper(values):
+    """Require the username and password together; half a login is unusable."""
+    if bool(values.get("ssid")) != bool(values.get("sspassword")):
+        return "enter both the username and the password."
+    return None
+
+
 # TVDB and IGDB swap their key for a bearer token cached under a single global
 # cache key (tvdb.TOKEN_CACHE_KEY, and igdb's token cache), so a personal key
 # there would hand every other user someone else's token. They stay
@@ -358,6 +365,7 @@ REGISTRY: dict[str, ProviderCredentialSpec] = {
             label="ScreenScraper",
             description="Retro artwork. An account raises your limits.",
             docs_url="https://www.screenscraper.fr/membreinscription.php",
+            validator=_validate_screenscraper,
             fields=(
                 CredentialField("ssid", "Username", "SCREENSCRAPER_SSID", secret=False),
                 CredentialField("sspassword", "Password", "SCREENSCRAPER_SSPASSWORD"),
