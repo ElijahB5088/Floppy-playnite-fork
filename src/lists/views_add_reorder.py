@@ -34,6 +34,7 @@ from lists.views_helpers import (
     _extract_list_search_results,
     _list_item_title_fields_from_metadata,
     _maybe_backfill_episode_title,
+    list_has_item_identity,
 )
 
 logger = logging.getLogger(__name__)
@@ -320,7 +321,7 @@ def add_list_item_submit(request, list_id):
         fallback_media_type=item.media_type,
     )
 
-    if custom_list.items.filter(id=item.id).exists():
+    if list_has_item_identity(custom_list, item):
         messages.info(
             request,
             gettext('"%(value_1)s" is already in this list.') % {"value_1": item.title},

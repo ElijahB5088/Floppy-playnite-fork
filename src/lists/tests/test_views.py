@@ -4618,6 +4618,29 @@ class QuickAddListItemTests(TestCase):
         )
         self.assertEqual(Item.objects.filter(media_id="1396").count(), 2)
 
+    def test_add_list_item_submit_rejects_title_already_in_list_via_other_bucket(self):
+        """The other bucket's row already on the list must block a second add."""
+        identity, mine = self._create_show_in_two_buckets()
+        other_row = Item.objects.get(
+            media_id=identity["media_id"],
+            library_media_type=MediaTypes.TV.value,
+        )
+        CustomListItem.objects.create(custom_list=self.custom_list, item=other_row)
+
+        self.client.post(
+            reverse("list_add_item_submit", args=[self.custom_list.id]),
+            {
+                "media_id": identity["media_id"],
+                "media_type": identity["media_type"],
+                "source": identity["source"],
+            },
+        )
+
+        self.assertEqual(
+            list(self.custom_list.items.values_list("id", flat=True)),
+            [other_row.id],
+        )
+
     def test_recommendation_item_survives_item_in_two_library_buckets(self):
         """Recommending a title stored in two buckets reuses a row, not a crash."""
         identity, mine = self._create_show_in_two_buckets()
