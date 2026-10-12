@@ -696,6 +696,44 @@ class ImportTraktExport(TestCase):
 
         self.assertEqual(Episode.objects.filter(item__media_id="12345").count(), 1)
 
+    @patch(
+        "app.providers.tmdb.resolve_tvdb_id_for_tmdb_show",
+        return_value="999",
+    )
+    @patch("integrations.imports.trakt.item_merge.find_tvdb_counterpart")
+    @patch("integrations.imports.trakt.tvdb.enabled", return_value=True)
+    @patch("integrations.imports.trakt.TraktImporter._get_metadata")
+    def test_reimport_into_library_tracked_via_tvdb(
+        self, mock_get_metadata, _mock_tvdb_enabled, mock_find, _mock_resolve,
+    ):
+        """A show already tracked on its TVDB Item is reused, never queued again."""
+        mock_get_metadata.side_effect = _metadata_side_effect
+        self.user.tv_metadata_source_default = Sources.TVDB.value
+        self.user.save()
+        tvdb_item = Item.objects.create(media_id="999", source=Sources.TVDB.value,
+            media_type=MediaTypes.TV.value, title="Test Show", image="")
+        tvdb_season = Item.objects.create(media_id="999", source=Sources.TVDB.value,
+            media_type=MediaTypes.SEASON.value, season_number=1, title="Test Show", image="")
+        tv = TV.objects.create(item=tvdb_item, user=self.user, status=Status.PLANNING.value)
+        Season.objects.create(item=tvdb_season, user=self.user, related_tv=tv, status=Status.PLANNING.value)
+        def find(_id, media_type, season_number=None, **_k):
+            return {MediaTypes.TV.value: tvdb_item, MediaTypes.SEASON.value: tvdb_season}.get(media_type)
+        mock_find.side_effect = find
+        files = {
+            "watched-history-1.json": [{"type": "episode", "watched_at": "2023-01-01T00:00:00.000Z",
+                "episode": {"season": 1, "number": 1, "title": "One"}, "show": _show()}],
+            "watchlist.json": [
+                {"type": "show", "listed_at": "2023-01-01T00:00:00.000Z", "show": _show()},
+                {"type": "season", "listed_at": "2023-01-01T00:00:00.000Z", "show": _show(), "season": {"number": 1}},
+            ],
+        }
+        for mode in ("new", "overwrite", "new"):
+            with self.subTest(mode=mode):
+                importer(_zip_bytes(files), self.user, mode)
+                self.assertEqual(TV.objects.filter(user=self.user).count(), 1)
+                self.assertEqual(Season.objects.filter(user=self.user).count(), 1)
+                self.assertEqual(Episode.objects.count(), 1)
+
 
 class TraktExportUploadViewTests(TestCase):
     """Test that the unified Trakt upload routes each file type to the right task."""
