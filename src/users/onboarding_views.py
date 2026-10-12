@@ -393,10 +393,7 @@ def onboarding_service_setup(request):
         {
             "current_source": current,
             "remaining_count": len(remaining),
-            "trakt_configured": bool(
-                credentials.get("trakt", "client_id")
-                and credentials.get("trakt", "client_secret"),
-            ),
+            "trakt_configured": bool(credentials.get("trakt", "client_id")),
             **_wizard_progress("service_setup"),
         },
     )
