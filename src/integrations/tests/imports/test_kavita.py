@@ -528,6 +528,7 @@ class KavitaImporterTests(TestCase):
             "title": "Absolute Superman #8",
             "image": "cover.jpg",
             "synopsis": "Synopsis",
+            "max_progress": None,
             "details": {},
         }
         series = _series(2, name="Absolute Superman", comicVineId="160860")
