@@ -693,7 +693,7 @@ class TraktMetadataResolverMixin:
                 self._item_memo.popitem(last=False)
         return item
 
-    def _adopt_provider_tv(self, tmdb_id):
+    def _adopt_provider_tv(self, tmdb_id, title):
         """Treat a show the user tracks on its TVDB Item as already existing.
 
         ``existing_media`` is keyed by each row's own provider, so a
@@ -712,6 +712,9 @@ class TraktMetadataResolverMixin:
             return
         self.provider_tv_checked.add(tmdb_id)
 
+        # The TVDB id comes from cached TMDB metadata, so load it first.
+        if self._get_metadata(MediaTypes.TV.value, tmdb_id, title) is None:
+            return
         tvdb_id = tmdb.resolve_tvdb_id_for_tmdb_show(tmdb_id)
         if not tvdb_id:
             return
@@ -729,6 +732,7 @@ class TraktMetadataResolverMixin:
 
         shows[tmdb_id] = tv_obj
         if self.mode == "overwrite":
+            self.to_delete[MediaTypes.TV.value][Sources.TMDB.value].add(tmdb_id)
             self.to_delete[MediaTypes.TV.value][Sources.TVDB.value].add(str(tvdb_id))
 
     def _find_preferred_provider_item(
@@ -1265,7 +1269,6 @@ class TraktImporter(TraktMetadataResolverMixin):
             )
             return
 
-        self._adopt_provider_tv(tmdb_id)
         tv_exists = (
             tmdb_id in self.existing_media[MediaTypes.TV.value][Sources.TMDB.value]
         )
@@ -1276,6 +1279,7 @@ class TraktImporter(TraktMetadataResolverMixin):
         tv_metadata = self._get_metadata(MediaTypes.TV.value, tmdb_id, show["title"])
         if not tv_metadata:
             return
+        self._adopt_provider_tv(tmdb_id, show["title"])
 
         # Get Season metadata
         season_metadata = self._get_metadata(
@@ -1931,7 +1935,7 @@ class TraktImporter(TraktMetadataResolverMixin):
             parent_type == MediaTypes.TV.value
             and tmdb_id not in self.deleted_media[parent_type][Sources.TMDB.value]
         ):
-            self._adopt_provider_tv(tmdb_id)
+            self._adopt_provider_tv(tmdb_id, media_data["title"])
         should_process = helpers.should_process_media(
             self.existing_media,
             self.to_delete,

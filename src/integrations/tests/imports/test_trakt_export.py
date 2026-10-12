@@ -696,18 +696,23 @@ class ImportTraktExport(TestCase):
 
         self.assertEqual(Episode.objects.filter(item__media_id="12345").count(), 1)
 
-    @patch(
-        "app.providers.tmdb.resolve_tvdb_id_for_tmdb_show",
-        return_value="999",
-    )
     @patch("integrations.imports.trakt.item_merge.find_tvdb_counterpart")
     @patch("integrations.imports.trakt.tvdb.enabled", return_value=True)
     @patch("integrations.imports.trakt.TraktImporter._get_metadata")
     def test_reimport_into_library_tracked_via_tvdb(
-        self, mock_get_metadata, _mock_tvdb_enabled, mock_find, _mock_resolve,
+        self, mock_get_metadata, _mock_tvdb_enabled, mock_find,
     ):
         """A show already tracked on its TVDB Item is reused, never queued again."""
-        mock_get_metadata.side_effect = _metadata_side_effect
+        def warm_cache_like_tmdb(media_type, tmdb_id, title, season_number=None):
+            # The TVDB id is only known once TMDB metadata has been cached.
+            if media_type == MediaTypes.TV.value:
+                cache.set(
+                    f"{Sources.TMDB.value}_{MediaTypes.TV.value}_{tmdb_id}",
+                    {"tvdb_id": "999"},
+                )
+            return _metadata_side_effect(media_type, tmdb_id, title, season_number)
+
+        mock_get_metadata.side_effect = warm_cache_like_tmdb
         self.user.tv_metadata_source_default = Sources.TVDB.value
         self.user.save()
         tvdb_item = Item.objects.create(media_id="999", source=Sources.TVDB.value,
