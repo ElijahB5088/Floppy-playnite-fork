@@ -5,8 +5,14 @@ from django.template.loader import render_to_string
 from django.test import SimpleTestCase, TestCase
 
 from app import carousel
+from app.game_artwork.base import Art
 from app.models import MediaTypes, Sources
 from app.providers import tmdb
+
+IGDB_HERO = Art(
+    "https://images.igdb.com/igdb/image/upload/t_1080p/art1.jpg", "igdb", "art1"
+)
+SGDB_LOGO = Art("https://cdn2.steamgriddb.com/logo/1.png", "steamgriddb", "9")
 
 
 class CarouselOverviewTests(SimpleTestCase):
@@ -181,14 +187,17 @@ class CarouselOverviewTests(SimpleTestCase):
 
         self.assertIsNone(result["hero"])
 
+    @patch("app.carousel._game_artwork")
     @patch("lists.models.CustomList._get_igdb_carousel_media")
-    def test_igdb_phone_hero_without_a_logo_keeps_the_hero_image(self, mock_media):
+    def test_igdb_phone_hero_without_a_logo_keeps_the_hero_image(
+        self, mock_media, mock_artwork
+    ):
         mock_media.return_value = {
             "video": None,
             "photos": ["art1", "shot2"],
             "hero_image_id": "art1",
-            "logo_image_id": None,
         }
+        mock_artwork.return_value = {"logo": None, "backdrop": IGDB_HERO}
 
         result = carousel.resolve_carousel_media(
             MediaTypes.GAME.value, Sources.IGDB.value, "123"
@@ -198,22 +207,70 @@ class CarouselOverviewTests(SimpleTestCase):
         self.assertIn("art1", result["hero"]["url"])
         self.assertIsNone(result["hero"]["logo_url"])
 
+    @patch("app.carousel._game_artwork")
     @patch("lists.models.CustomList._get_igdb_carousel_media")
-    def test_igdb_game_adds_game_logo_and_omits_duplicate_hero_photo(self, mock_media):
+    def test_igdb_game_adds_game_logo_and_omits_duplicate_hero_photo(
+        self, mock_media, mock_artwork
+    ):
         mock_media.return_value = {
             "video": None,
             "photos": ["art1", "shot2"],
             "hero_image_id": "art1",
-            "logo_image_id": "logo1",
         }
+        mock_artwork.return_value = {"logo": SGDB_LOGO, "backdrop": IGDB_HERO}
 
         result = carousel.resolve_carousel_media(
             MediaTypes.GAME.value, Sources.IGDB.value, "123"
         )
 
-        self.assertEqual(result["overview"]["logo_url"], "https://images.igdb.com/igdb/image/upload/t_logo_med/logo1.png")
+        self.assertEqual(result["overview"]["logo_url"], SGDB_LOGO.url)
         self.assertEqual(len(result["photos"]), 1)
         self.assertIn("shot2", result["photos"][0]["url"])
+
+    @patch("app.carousel._game_artwork")
+    @patch("lists.models.CustomList._get_igdb_carousel_media")
+    def test_provider_backdrop_replaces_the_igdb_hero_in_the_overview(
+        self, mock_media, mock_artwork
+    ):
+        mock_media.return_value = {
+            "video": None,
+            "photos": ["art1", "shot2"],
+            "hero_image_id": "art1",
+        }
+        backdrop = Art("https://cdn2.steamgriddb.com/hero/1.jpg", "steamgriddb", "5")
+        mock_artwork.return_value = {"logo": SGDB_LOGO, "backdrop": backdrop}
+
+        result = carousel.resolve_carousel_media(
+            MediaTypes.GAME.value, Sources.IGDB.value, "123"
+        )
+
+        self.assertEqual(result["overview"]["url"], backdrop.url)
+        self.assertEqual(result["hero"]["url"], backdrop.url)
+        # IGDB's own artwork stays in the gallery when it is not the overview.
+        self.assertEqual(len(result["photos"]), 2)
+
+    @patch("app.carousel._game_artwork")
+    @patch("lists.models.CustomList._get_igdb_carousel_media")
+    def test_game_with_only_provider_art_still_gets_an_overview(
+        self, mock_media, mock_artwork
+    ):
+        mock_media.return_value = {"video": None, "photos": [], "hero_image_id": None}
+        backdrop = Art("https://cdn2.steamgriddb.com/hero/1.jpg", "steamgriddb", "5")
+        mock_artwork.return_value = {"logo": SGDB_LOGO, "backdrop": backdrop}
+
+        result = carousel.resolve_carousel_media(
+            MediaTypes.GAME.value, Sources.IGDB.value, "123"
+        )
+
+        self.assertEqual(result["overview"]["logo_url"], SGDB_LOGO.url)
+
+    @patch("app.game_artwork.resolve", side_effect=RuntimeError("down"))
+    @patch("app.providers.igdb.game", return_value={"title": "Game"})
+    def test_artwork_failure_falls_back_to_igdb_art(self, _game, _resolve):
+        result = carousel._game_artwork("123", "art1")
+
+        self.assertIsNone(result["logo"])
+        self.assertEqual(result["backdrop"], IGDB_HERO)
 
     def test_tmdb_logo_parser_prefers_english_then_neutral_then_other(self):
         logos = tmdb._parse_carousel_logos(
@@ -292,13 +349,13 @@ class IgdbCarouselOverviewTests(TestCase):
             [],
         ],
     )
-    def test_igdb_carousel_fetch_includes_game_logo(self, mock_api, _mock_token):
+    def test_igdb_carousel_fetch_does_not_ask_for_a_game_logo(self, mock_api, _mock_token):
         from lists.models import CustomList
 
         data = CustomList()._get_igdb_carousel_media("123")
 
-        self.assertIn("logo.image_id", mock_api.call_args_list[0].kwargs["data"])
-        self.assertEqual(data["logo_image_id"], "game-logo")
+        # IGDB games have no `logo` field: asking for one fails the whole query.
+        self.assertNotIn("logo", mock_api.call_args_list[0].kwargs["data"])
         self.assertEqual(data["hero_image_id"], "game-screen")
 
     @patch("app.providers.igdb.get_access_token", side_effect=RuntimeError("down"))
@@ -308,5 +365,28 @@ class IgdbCarouselOverviewTests(TestCase):
         data = CustomList()._get_igdb_carousel_media("123")
 
         self.assertEqual(data["photos"], [])
-        self.assertIsNone(data["logo_image_id"])
         self.assertIsNone(data["hero_image_id"])
+
+    @patch("app.providers.igdb.get_access_token", return_value="token")
+    @patch("app.providers.services.api_request")
+    def test_a_failed_lookup_is_only_cached_briefly(self, mock_api, _mock_token):
+        from lists.models import IGDB_CAROUSEL_FAILURE_TTL, CustomList
+
+        mock_api.side_effect = RuntimeError("igdb down")
+
+        with patch("django.core.cache.cache.set") as mock_set:
+            CustomList()._get_igdb_carousel_media("123")
+
+        self.assertEqual(mock_set.call_args.args[2], IGDB_CAROUSEL_FAILURE_TTL)
+
+    @patch("app.providers.igdb.get_access_token", return_value="token")
+    @patch("app.providers.services.api_request")
+    def test_a_game_with_no_media_is_cached_for_a_day(self, mock_api, _mock_token):
+        from lists.models import CustomList
+
+        mock_api.side_effect = [[{"id": 123, "artworks": [], "screenshots": []}], []]
+
+        with patch("django.core.cache.cache.set") as mock_set:
+            CustomList()._get_igdb_carousel_media("123")
+
+        self.assertEqual(mock_set.call_args.args[2], 60 * 60 * 24)
