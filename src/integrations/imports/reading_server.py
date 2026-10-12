@@ -229,6 +229,9 @@ class ReadingServerImporter(KoreaderImporter):
             self.warnings.append(f"Could not match {self.service} item {label}")
             counts["skipped"] += 1
             return
+        if link and link.item_id != item.id:
+            link.item = item
+            link.save(update_fields=["item"])
         if link is None and key:
             links[key] = self.link_model.objects.update_or_create(
                 user=self.user,
