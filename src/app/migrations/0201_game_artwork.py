@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("app", "0199_episode_rating_only"),
+        ("app", "0200_normalize_tag_names"),
     ]
 
     operations = [
