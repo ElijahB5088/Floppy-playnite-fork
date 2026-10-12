@@ -3,6 +3,7 @@
 from django.urls import reverse
 
 from app import history_cache
+from app.history_cache_day_builder import build_history_day
 from app.models import Item, MediaTypes, Status, Video, VideoPlay
 
 from .base import FloppyApiTestCase
@@ -187,3 +188,32 @@ class VideoPlayApiTests(FloppyApiTestCase):
             externalId="youtube:vid1:2026-10-03",
         )
         self.assertEqual(Item.objects.get(media_id="vid1").image, first)
+
+    def test_a_thumbnail_over_plain_http_is_ignored(self):
+        """An http poster would be blocked as mixed content on an https install."""
+        response = self._post(thumbnailUrl="http://i.ytimg.com/vi/vid1/mqdefault.jpg")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(Item.objects.get(media_id="vid1").image, "")
+
+    def test_plays_on_the_same_day_list_the_latest_post_first(self):
+        """YouTube only gives a day, so the plays tie and the later post wins."""
+        for media_id in ("vidA", "vidB", "vidC"):
+            self._post(
+                media_id=media_id,
+                title=media_id,
+                externalId=f"youtube:{media_id}:2026-10-02",
+            )
+        day = history_cache.history_day_key(VideoPlay.objects.first().end_date)
+        history_day = build_history_day(self.user1, day)
+        titles = [entry["title"] for entry in history_day["entries"]]
+        self.assertEqual(titles, ["vidC", "vidB", "vidA"])
+
+    def test_searching_videos_returns_an_empty_page(self):
+        """Videos come from clients, so the search API has no provider to ask."""
+        response = self.client.get(
+            reverse("api_search_provider", kwargs={"media_type": "video"}),
+            {"q": "anything"},
+            **self.auth_headers,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["results"], [])

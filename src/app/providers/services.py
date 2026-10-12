@@ -1704,11 +1704,13 @@ def search(
             if source == Sources.POCKETCASTS.value
             else None
         ),
+        # Videos arrive from clients, so there is no provider to search.
+        MediaTypes.VIDEO.value: lambda: None,
     }
     response = search_handlers[media_type]()
 
     if response is None:
-        # Return empty results for non-pocketcasts podcast sources.
+        # Return empty results for non-pocketcasts podcast sources and videos.
         response = helpers.format_search_response(page, settings.PER_PAGE, 0, [])
 
     if id_result is not None:

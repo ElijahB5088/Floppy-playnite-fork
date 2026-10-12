@@ -36,7 +36,7 @@ def _end_date_from_external_id(external_id):
 def _approved_thumbnail_url(data):
     """Return a thumbnail URL Floppy may store, or empty.
 
-    Only hosts on the artwork allowlist are kept. Anything else is dropped,
+    Only https URLs on the artwork allowlist are kept. Anything else is dropped,
     so this endpoint never fetches a caller-supplied URL.
 
     @param data - Request body.
@@ -46,7 +46,8 @@ def _approved_thumbnail_url(data):
     url = str(raw).strip()
     if not url or len(url) > MAX_THUMBNAIL_URL_LENGTH:
         return ""
-    if not is_approved_url(url):
+    # An http:// poster would be blocked as mixed content on an https install.
+    if not url.lower().startswith("https://") or not is_approved_url(url):
         return ""
     return url
 
