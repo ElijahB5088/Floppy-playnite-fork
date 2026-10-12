@@ -1428,10 +1428,17 @@ def media_list(request, media_type):
             ),
         )
         statusless_media_by_item_id = _statusless_media_by_item_id()
-        if not collected_item_ids and not statusless_media_by_item_id:
+        if (
+            not collected_item_ids
+            and not statusless_media_by_item_id
+            and not tag_included_ids
+        ):
             return []
 
         candidate_item_ids = set(collected_item_ids) | set(statusless_media_by_item_id)
+        # A tag can sit on an item with no tracker and no collection entry.
+        if tag_included_ids:
+            candidate_item_ids |= tag_included_ids
         if media_type in {MediaTypes.TV.value, MediaTypes.ANIME.value}:
             episode_pairs = {
                 (str(media_id), str(source))
@@ -2632,6 +2639,23 @@ def media_list(request, media_type):
         # Apply search filter to shows
         if search_query:
             show_trackers = show_trackers.filter(show__title__icontains=search_query)
+
+        # A tag sits on the show's item, which carries the show's uuid.
+        if tag_included_ids is not None or tag_excluded_ids is not None:
+            tagged_show_uuids = Item.objects.filter(
+                pk__in=tag_included_ids
+                if tag_included_ids is not None
+                else tag_excluded_ids,
+                media_type=MediaTypes.PODCAST.value,
+            ).values("media_id")
+            if tag_included_ids is not None:
+                show_trackers = show_trackers.filter(
+                    show__podcast_uuid__in=tagged_show_uuids,
+                )
+            else:
+                show_trackers = show_trackers.exclude(
+                    show__podcast_uuid__in=tagged_show_uuids,
+                )
 
         # Apply rating filter to shows
         if rating_filter == "rated":
