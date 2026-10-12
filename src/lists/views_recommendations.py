@@ -23,6 +23,7 @@ from app.discover import tab_cache as discover_tab_cache
 from app.media_list_filters import media_list_entries_for_items
 from app.models import Item, MediaTypes
 from app.providers import services
+from integrations.imports.helpers import find_item_across_buckets
 from lists.models import (
     CustomList,
     CustomListItem,
@@ -256,18 +257,20 @@ def get_or_create_recommendation_item(
     source,
     season_number=None,
     episode_number=None,
+    user=None,
 ):
     """Return the Item for a recommendation, creating it from metadata if new."""
-    try:
-        item = Item.objects.get(
-            media_id=media_id,
-            source=source,
-            media_type=media_type,
-            season_number=season_number,
-            episode_number=episode_number,
-        )
+    item = find_item_across_buckets(
+        user=user,
+        media_id=media_id,
+        source=source,
+        media_type=media_type,
+        season_number=season_number,
+        episode_number=episode_number,
+    )
+    if item is not None:
         _maybe_backfill_episode_title(item, force=True)
-    except Item.DoesNotExist:
+    else:
         metadata = services.get_media_metadata(
             media_type,
             media_id,
@@ -326,6 +329,7 @@ def submit_recommendation(request, list_id):
         source,
         season_number,
         episode_number,
+        user=request.user if request.user.is_authenticated else None,
     )
 
     discover_tab_cache.mark_active_from_request(

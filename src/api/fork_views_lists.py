@@ -292,6 +292,7 @@ class ListRecommendationsView(drf_views.APIView):
                 source,
                 season_number,
                 episode_number,
+                user=request.user,
             )
         except Exception as e:
             return Response(
