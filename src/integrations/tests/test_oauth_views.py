@@ -252,9 +252,12 @@ class OAuthStateViewTests(TestCase):
     @override_settings(URLS=["https://floppy.example.com"])
     def test_trakt_without_a_secret_authorizes_with_pkce(self):
         """An app with no client secret logs in with a PKCE challenge (#1523)."""
-        with patch(
-            "integrations.views.credentials.get",
-            side_effect=lambda _slug, field: {"client_id": "client"}.get(field, ""),
+        with (
+            patch(
+                "integrations.views.credentials.get",
+                side_effect=lambda _slug, field: {"client_id": "client"}.get(field, ""),
+            ),
+            patch("integrations.views.trakt.default_client_secret", return_value=""),
         ):
             response = self.client.post(
                 reverse("trakt_oauth"),
@@ -289,12 +292,15 @@ class OAuthStateViewTests(TestCase):
 
     @override_settings(URLS=["https://floppy.example.com"])
     def test_trakt_with_a_secret_does_not_use_pkce(self):
-        with patch(
-            "integrations.views.credentials.get",
-            side_effect=lambda _slug, field: {
-                "client_id": "client",
-                "client_secret": "secret",
-            }.get(field, ""),
+        with (
+            patch(
+                "integrations.views.credentials.get",
+                side_effect=lambda _slug, field: {"client_id": "client"}.get(field, ""),
+            ),
+            patch(
+                "integrations.views.trakt.default_client_secret",
+                return_value="secret",
+            ),
         ):
             response = self.client.post(
                 reverse("trakt_oauth"),
