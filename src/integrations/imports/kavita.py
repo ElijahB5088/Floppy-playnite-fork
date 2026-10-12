@@ -385,7 +385,7 @@ class KavitaImporter(ReadingServerImporter):
             read_at = parse_datetime(series.get("latestReadDate"))
             if cutoff and read_at and read_at < cutoff:
                 continue
-            self._import_series(series, read_at or timezone.now(), links, counts)
+            self._import_series(series, read_at, links, counts)
 
     def _import_series(self, series, read_at, links, counts):
         """Write one series' progress as a manga, book or comic issues."""

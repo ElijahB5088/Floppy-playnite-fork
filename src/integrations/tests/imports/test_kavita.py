@@ -205,6 +205,34 @@ class KavitaImporterTests(TestCase):
         self.assertFalse(Item.objects.filter(media_id="303").exists())
         self.assertEqual(counts[MediaTypes.COMIC_ISSUE.value], 2)
 
+    def test_comic_issue_read_date_is_updated_on_a_later_sync(self):
+        series = _series(
+            2,
+            name="Saga",
+            latestReadDate="2026-09-20T12:00:00Z",
+        )
+        chapters = [
+            _chapter(
+                21,
+                pages_read=20,
+                number=1,
+                comicVineId="301",
+                lastReadingProgressUtc="2026-09-19T12:00:00Z",
+            ),
+        ]
+        self._sync([series], {2: _detail(COMIC, chapters)})
+
+        self.account.last_sync_at = None
+        self.account.save(update_fields=["last_sync_at"])
+        chapters[0]["lastReadingProgressUtc"] = "2026-09-21T12:00:00Z"
+        self._sync([series], {2: _detail(COMIC, chapters)})
+
+        issue = ComicIssue.objects.get(user=self.user, item__media_id="301")
+        self.assertEqual(
+            issue.end_date,
+            datetime(2026, 9, 21, 12, 0, tzinfo=UTC),
+        )
+
     @patch("integrations.imports.kavita.settings.TESTING", False)
     @patch("integrations.imports.kavita.services.get_media_metadata")
     def test_comic_ids_enrich_items_and_track_the_series(
