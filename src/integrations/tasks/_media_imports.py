@@ -8,6 +8,7 @@ from django.utils import timezone
 import events
 from app import backfill_queue, cache_safety, history_cache, statistics_sync
 from app.mixins import disable_fetch_releases
+from app.providers import credentials
 from integrations import connection_health, import_progress
 from integrations.imports import (
     anilist,
@@ -72,6 +73,9 @@ from integrations.tasks._plex_collection import update_collection_metadata_from_
 
 logger = logging.getLogger(__name__)
 
+# A sync that dies leaves its lock behind; it expires on its own after this.
+PSN_IMPORT_LOCK_SECONDS = 15 * 60
+
 
 
 def import_media(
@@ -84,6 +88,12 @@ def import_media(
 ):
     """Handle the import process for different media services."""
     user = get_user_model().objects.get(id=user_id)
+    if not user.is_active:
+        # Deactivated after the task was queued: an import is new provider
+        # work that mutates tracking state, so it must not run. No ImportRun
+        # row either — the skip is not an import.
+        logger.info("import_skipped_inactive_user user_id=%s", user_id)
+        return "Import skipped: the account is deactivated."
     task_id = current_task.request.id if current_task and current_task.request else None
 
     source = getattr(importer_func, "__module__", "").rsplit(".", 1)[-1]
@@ -118,6 +128,9 @@ def import_media(
             import_progress.tracking(task_id, import_run.id),
             backfill_queue.defer_backfill_publication(),
             statistics_sync.coalesce_import_changes(user_id) as statistics_changes,
+            # A Celery task runs no middleware, so without this the importer
+            # would not see the user's personal provider keys (#1488).
+            credentials.current_user_scope(user),
         ):
             if oauth_username is None:
                 imported_counts, warnings = importer_func(
@@ -416,16 +429,48 @@ def import_xbox_recurring(user_id, mode="new"):
     return import_media(xbox.importer, None, user_id, mode)
 
 
+def _run_psn_import(user_id, mode, *, on_cache_error):
+    """Serialize syncs for one PSN account.
+
+    Two overlapping syncs would read the same remembered totals and log the
+    same new play twice.
+    """
+    lock_key = f"psn_import_lock_{user_id}"
+    task_id = current_task.request.id if current_task and current_task.request else "1"
+    if not cache_safety.acquire_lock(
+        lock_key,
+        timeout=PSN_IMPORT_LOCK_SECONDS,
+        on_error=on_cache_error,
+        value=task_id,
+    ):
+        logger.info("psn_import status=already_running user_id=%s", user_id)
+        return "Skipped: PlayStation sync already in progress"
+    try:
+        return import_media(psn.importer, None, user_id, mode)
+    finally:
+        cache_safety.release_lock(lock_key)
+
+
 @shared_task(name="Import from PSN")
 def import_psn(user_id, mode="new"):
     """Celery task for importing game data from a connected PSN account."""
-    return import_media(psn.importer, None, user_id, mode)
+    return _run_psn_import(
+        user_id,
+        mode,
+        on_cache_error=cache_safety.ON_ERROR_PROCEED,
+    )
 
 
 @shared_task(name="Import from PSN (Recurring)")
 def import_psn_recurring(user_id, mode="new"):
     """Recurring import task for PSN."""
-    return import_media(psn.importer, None, user_id, mode)
+    # Skip rather than risk two overlapping syncs logging the same play twice;
+    # the next run picks up the same growth.
+    return _run_psn_import(
+        user_id,
+        mode,
+        on_cache_error=cache_safety.ON_ERROR_SKIP,
+    )
 
 
 @shared_task(name="Import from IMDB")
@@ -650,6 +695,11 @@ def push_jellyfin_watched(self, user_id):
     cache_safety.release_lock(_jellyfin_health.instant_push_lock_key(user_id))
 
     user = get_user_model().objects.get(id=user_id)
+    if not user.is_active:
+        # Deactivated after the task was queued: pushing watched state is new
+        # provider work against the user's server, so it must not run.
+        logger.info("jellyfin_push_skipped_inactive_user user_id=%s", user_id)
+        return "Skipped: the account is deactivated."
     account = getattr(user, "jellyfin_account", None)
     if not _jellyfin_health.has_credentials(account):
         msg = "Connect Jellyfin before syncing."

@@ -604,6 +604,7 @@
       {% if user.boardgame_enabled %}{value: 'boardgame', label: 'Board Games'},{% endif %}
       {% if user.music_enabled %}{value: 'music', label: '{{ media_i18n_24|escapejs }}'},{% endif %}
       {% if user.podcast_enabled %}{value: 'podcast', label: 'Podcasts'},{% endif %}
+      {% if user.video_enabled %}{value: 'video', label: 'Videos'},{% endif %}
       {% if user.book_enabled %}{value: 'book', label: 'Books'},{% endif %}
       {% if user.comic_enabled %}{value: 'comic', label: 'Comics'},{% endif %}
     ]
@@ -1430,6 +1431,11 @@
         </div>
       {% endif %}
 
+      {% if user.video_enabled and video_consumption.has_data %}
+        <div x-show="isMediaTypeVisible('video')">
+          {% include "app/components/statistics/video_activity_overview.html" %}
+        </div>
+      {% endif %}
       {% if user.podcast_enabled and podcast_consumption.has_data %}
         <div x-show="isMediaTypeVisible('podcast')">
           {% include "app/components/statistics/podcast_activity_overview.html" %}
@@ -1777,7 +1783,7 @@
   }">
     {# FAB button #}
     <button @click="open = true"
-            class="fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg flex items-center justify-center cursor-pointer transition-colors"
+            class="fixed bottom-6 right-[max(1.5rem,var(--safe-right))] z-40 w-14 h-14 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg flex items-center justify-center cursor-pointer transition-colors"
             title="{% translate "Statistics preferences" %}"
             aria-label="{% translate "Statistics preferences" %}">
       {% include "app/icons/vertical-sliders.svg" with classes="w-5 h-5" %}
@@ -2178,6 +2184,11 @@
   {% if user.podcast_enabled and podcast_consumption.has_data %}
     {% if show_year_charts %}
       {{ podcast_consumption.charts.by_year|json_script:"podcast_plays_by_year" }}
+    {% endif %}
+  {% endif %}
+  {% if user.video_enabled and video_consumption.has_data %}
+    {% if show_year_charts %}
+      {{ video_consumption.charts.by_year|json_script:"video_plays_by_year" }}
     {% endif %}
   {% endif %}
 

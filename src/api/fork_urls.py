@@ -16,6 +16,7 @@ from . import (
     fork_views_statistics,
     fork_views_tracking,
     fork_views_users,
+    fork_views_video,
     fork_views_watched_state,
 )
 
@@ -99,6 +100,16 @@ urlpatterns = [
         r"^collection/?$",
         fork_views.CollectionView.as_view(),
         name="api_collection",
+    ),
+    re_path(
+        r"^media/(?P<media_type>[^/]+)/(?P<source>[^/]+)/(?P<media_id>[^/]+)/(?P<season_number>\d+)/episodes/(?P<episode_number>\d+)/collection/?$",
+        fork_views.MediaCollectionView.as_view(),
+        name="api_media_episode_collection",
+    ),
+    re_path(
+        r"^media/(?P<media_type>[^/]+)/(?P<source>[^/]+)/(?P<media_id>[^/]+)/collection/?$",
+        fork_views.MediaCollectionView.as_view(),
+        name="api_media_collection",
     ),
     re_path(
         r"^collection/(?P<entry_id>\d+)/?$",
@@ -191,6 +202,11 @@ urlpatterns = [
         name="api_podcast_mark_all_played",
     ),
     re_path(
+        r"^videos/(?P<source>[^/]+)/(?P<media_id>[^/]+)/plays/?$",
+        fork_views_video.VideoPlayView.as_view(),
+        name="api_video_play",
+    ),
+    re_path(
         r"^podcasts/episodes/plays/?$",
         fork_views_podcast.PodcastEpisodePlayView.as_view(),
         name="api_podcast_episode_play",
@@ -249,6 +265,11 @@ urlpatterns = [
         r"^discover/?$",
         fork_views_discover.DiscoverRowsView.as_view(),
         name="api_discover",
+    ),
+    re_path(
+        r"^recommendations/?$",
+        fork_views_discover.RecommendationsView.as_view(),
+        name="api_recommendations",
     ),
     re_path(
         r"^discover/refresh/?$",

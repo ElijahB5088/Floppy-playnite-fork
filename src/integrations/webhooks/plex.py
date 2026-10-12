@@ -11,7 +11,10 @@ from app.services import music_scrobble
 from integrations import external_references, plex_audiobook_sync
 from integrations import plex as plex_api
 from integrations.imports import plex_audiobooks
-from integrations.imports.helpers import find_item_across_buckets
+from integrations.imports.helpers import (
+    find_item_across_buckets,
+    get_or_create_item_across_buckets,
+)
 from integrations.matching import unique_title_match
 
 from .base import BaseWebhookProcessor
@@ -271,6 +274,11 @@ class PlexWebhookProcessor(BaseWebhookProcessor):
         if metadata_type == "movie":
             return MediaTypes.MOVIE.value
         return None
+
+    def _playback_rating_key(self, payload):
+        metadata = payload.get("Metadata") or {}
+        raw_rk = metadata.get("ratingKey") or metadata.get("ratingkey") or ""
+        return str(raw_rk).strip() or None
 
     def _update_live_playback_state(
         self,
@@ -883,7 +891,8 @@ class PlexWebhookProcessor(BaseWebhookProcessor):
             )
             return
 
-        movie_item, _ = app.models.Item.objects.get_or_create(
+        movie_item, _ = get_or_create_item_across_buckets(
+            user=user,
             media_id=tmdb_id,
             source=Sources.TMDB.value,
             media_type=MediaTypes.MOVIE.value,
@@ -1075,7 +1084,8 @@ class PlexWebhookProcessor(BaseWebhookProcessor):
                 )
                 return
 
-            movie_item, _ = app.models.Item.objects.get_or_create(
+            movie_item, _ = get_or_create_item_across_buckets(
+                user=user,
                 media_id=tmdb_id,
                 source=Sources.TMDB.value,
                 media_type=MediaTypes.MOVIE.value,

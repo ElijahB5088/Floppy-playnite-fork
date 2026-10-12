@@ -21,10 +21,12 @@ from app.models import (
     Season,
     Sources,
     Status,
+    Video,
 )
 from lists import smart_rules
 from lists.feeds import FloppyRssFeed
 from lists.models import CustomList, CustomListItem, ListActivity, ListRecommendation
+from lists.views_recommendations import get_or_create_recommendation_item
 from users.models import DateFormatChoices
 
 
@@ -1524,6 +1526,36 @@ class ListDetailViewTests(TestCase):
         trigger = json.loads(response["HX-Trigger"])
         self.assertEqual(trigger["listCountUpdated"]["count"], 3)
         self.assertEqual(trigger["listCountUpdated"]["label"], "3 items")
+
+    def test_a_video_can_join_a_custom_list(self):
+        """A video is added to a list like any other item and the list renders."""
+        video_item = Item.objects.create(
+            media_id="vid1",
+            source=Sources.YOUTUBE.value,
+            media_type=MediaTypes.VIDEO.value,
+            title="A Listed Video",
+            image="http://example.com/video.jpg",
+        )
+        Video.objects.create(
+            item=video_item, user=self.user, status=Status.COMPLETED.value
+        )
+
+        response = self.client.post(
+            reverse("list_item_toggle"),
+            {"item_id": video_item.id, "custom_list_id": self.custom_list.id},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(
+            CustomListItem.objects.filter(
+                custom_list=self.custom_list, item=video_item
+            ).exists()
+        )
+
+        response = self.client.get(
+            reverse("list_detail", args=[self.custom_list.public_reference])
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "A Listed Video")
 
     def test_list_detail_htmx_count_tracks_membership_toggle(self):
         """A refreshed manual-list response reports the committed item count."""
@@ -4545,6 +4577,83 @@ class QuickAddListItemTests(TestCase):
             reverse("list_detail", args=[self.custom_list.id]),
             fetch_redirect_response=False,
         )
+
+    def _create_show_in_two_buckets(self):
+        """Create one TV identity stored as both a 'tv' and a 'season' row (#1530)."""
+        identity = {
+            "media_id": "1396",
+            "source": Sources.TMDB.value,
+            "media_type": MediaTypes.TV.value,
+            "title": "Breaking Bad",
+            "image": "https://example.com/bb.jpg",
+        }
+        other_user = get_user_model().objects.create_user("other", "o@example.com", "pw")
+        other_row = Item.objects.create(
+            library_media_type=MediaTypes.TV.value, **identity
+        )
+        mine = Item.objects.create(
+            library_media_type=MediaTypes.SEASON.value, **identity
+        )
+        TV.objects.create(item=other_row, user=other_user, status="Planning")
+        TV.objects.create(item=mine, user=self.user, status="Planning")
+        return identity, mine
+
+    def test_add_list_item_submit_survives_item_in_two_library_buckets(self):
+        """A title stored in two buckets adds the user's own row instead of a 500."""
+        identity, mine = self._create_show_in_two_buckets()
+
+        response = self.client.post(
+            reverse("list_add_item_submit", args=[self.custom_list.id]),
+            {
+                "media_id": identity["media_id"],
+                "media_type": identity["media_type"],
+                "source": identity["source"],
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            list(self.custom_list.items.values_list("id", flat=True)),
+            [mine.id],
+        )
+        self.assertEqual(Item.objects.filter(media_id="1396").count(), 2)
+
+    def test_add_list_item_submit_rejects_title_already_in_list_via_other_bucket(self):
+        """The other bucket's row already on the list must block a second add."""
+        identity, mine = self._create_show_in_two_buckets()
+        other_row = Item.objects.get(
+            media_id=identity["media_id"],
+            library_media_type=MediaTypes.TV.value,
+        )
+        CustomListItem.objects.create(custom_list=self.custom_list, item=other_row)
+
+        self.client.post(
+            reverse("list_add_item_submit", args=[self.custom_list.id]),
+            {
+                "media_id": identity["media_id"],
+                "media_type": identity["media_type"],
+                "source": identity["source"],
+            },
+        )
+
+        self.assertEqual(
+            list(self.custom_list.items.values_list("id", flat=True)),
+            [other_row.id],
+        )
+
+    def test_recommendation_item_survives_item_in_two_library_buckets(self):
+        """Recommending a title stored in two buckets reuses a row, not a crash."""
+        identity, mine = self._create_show_in_two_buckets()
+
+        item = get_or_create_recommendation_item(
+            identity["media_id"],
+            identity["media_type"],
+            identity["source"],
+            user=self.user,
+        )
+
+        self.assertEqual(item, mine)
+        self.assertEqual(Item.objects.filter(media_id="1396").count(), 2)
 
     @patch("lists.views.services.search")
     def test_add_list_item_search_uses_track_results_from_music_combined_payload(

@@ -72,6 +72,7 @@ from integrations import plex_cover as plex_cover_proxy
 from integrations.gpodder_api import GPodderAuthError, GPodderClientError
 from integrations.imports import anilist, helpers, mdblist, simkl, stremio, trakt
 from integrations.imports import plex as plex_import
+from integrations.imports import psn as psn_import
 from integrations.imports.audiobookshelf import (
     AudiobookshelfAuthError,
     AudiobookshelfClient,
@@ -130,6 +131,7 @@ from integrations.models import (
     LastFMAccount,
     MDBListAccount,
     MylarInstance,
+    PlaytimeSnapshot,
     PlexAccount,
     PlexWebhookShare,
     PocketCastsAccount,
@@ -157,6 +159,7 @@ from integrations.upload_staging import (
     enqueue_staged_task,
     stage_uploaded_file,
     staged_payload_is_zip,
+    staging_failure_message,
 )
 from integrations.webhooks.plex import extract_plex_webhook_usernames
 
@@ -175,12 +178,9 @@ def _stage_upload_or_message(request, upload, label="upload"):
     """Stage an upload and report storage failures without returning a 500."""
     try:
         return str(stage_uploaded_file(upload))
-    except OSError:
+    except OSError as error:
         logger.exception("Could not stage %s for background import", label)
-        messages.error(
-            request,
-            "The upload could not be queued. Check available disk space and try again.",
-        )
+        messages.error(request, staging_failure_message(error))
         return None
 
 
@@ -3835,6 +3835,58 @@ def import_xbox(request):
     return redirect("import_data")
 
 
+def _psn_import_existing_playtime(request, default=True):
+    """Read the setup choice posted with the PSN forms."""
+    value = request.POST.get("existing_playtime")
+    return default if value is None else value != "new_only"
+
+
+def _ensure_psn_schedule(user):
+    """Keep exactly one recurring PSN sync for the user, at the fixed cadence.
+
+    PSN has no per-user frequency setting: a sync is cheap, and the sooner the
+    next one runs the narrower the window its new entry is slotted into. A
+    schedule left from the earlier daily/2-day choice is replaced.
+    """
+    from django_celery_beat.models import CrontabSchedule, PeriodicTask
+
+    crontab, _ = CrontabSchedule.objects.get_or_create(
+        # Spread users across the hour instead of syncing them all at once.
+        minute=str(user.id % 60),
+        hour=f"*/{psn_import.SYNC_EVERY_HOURS}",
+        day_of_week="*",
+        day_of_month="*",
+        month_of_year="*",
+        timezone=timezone.get_default_timezone(),
+    )
+    own_tasks = PeriodicTask.objects.filter(
+        _periodic_task_filter_for_user(user.id),
+        task=PSN_RECURRING_TASK_NAME,
+    )
+    own_tasks.exclude(crontab=crontab).delete()
+
+    kwargs = json.dumps({"user_id": user.id, "mode": "new"})
+    task = own_tasks.first()
+    if task:
+        task.kwargs = kwargs
+        task.enabled = True
+        task.save(update_fields=["kwargs", "enabled"])
+        return
+
+    # The id keeps the name unique when a username is changed and reused.
+    PeriodicTask.objects.create(
+        name=(
+            f"Import from PSN for {user.username} (#{user.id}) "
+            f"every {psn_import.SYNC_EVERY_HOURS} hours"
+        ),
+        task=PSN_RECURRING_TASK_NAME,
+        crontab=crontab,
+        kwargs=kwargs,
+        start_time=_next_crontab_run(crontab),
+        enabled=True,
+    )
+
+
 @require_POST
 def psn_connect(request):
     """Connect a PlayStation Network account using an NPSSO token."""
@@ -3860,30 +3912,53 @@ def psn_connect(request):
         )
         return redirect("import_data")
 
-    _run_with_lock_retry(
-        "connect PSN",
-        lambda: PSNAccount.objects.update_or_create(
+    def _connect():
+        # Remembered totals belong to one PSN account: another account's totals
+        # would read as fabricated (or hidden) play against the old ones.
+        previous = PSNAccount.objects.filter(user=request.user).first()
+        new_account = previous is None or previous.account_id != account_id
+        if new_account:
+            PlaytimeSnapshot.objects.filter(user=request.user, source="psn").delete()
+        PSNAccount.objects.update_or_create(
             user=request.user,
             defaults={
+                **({"last_sync_at": None} if new_account else {}),
                 "npsso": helpers.encrypt(npsso),
                 "account_id": account_id,
                 "online_id": online_id,
+                "import_existing_playtime": _psn_import_existing_playtime(request),
                 "connection_broken": False,
                 "last_error_message": "",
             },
-        ),
-    )
+        )
+
+    _run_with_lock_retry("connect PSN", _connect)
     messages.success(
         request,
         f"Connected to PlayStation Network as {online_id or account_id}.",
     )
-    _run_with_lock_retry(
-        "schedule PSN import",
-        lambda: _start_console_import(
-            request, "PSN", tasks.import_psn, PSN_RECURRING_TASK_NAME
-        ),
-    )
+    _run_with_lock_retry("schedule PSN import", lambda: _sync_psn_now(request))
     return redirect("import_data")
+
+
+def _sync_psn_now(request):
+    """Queue a sync now and make sure the recurring one is in place."""
+    _ensure_psn_schedule(request.user)
+    if (
+        _queue_task_or_message(
+            request,
+            tasks.import_psn,
+            user_id=request.user.id,
+            mode="new",
+        )
+        is False
+    ):
+        return
+    messages.info(
+        request,
+        "The PlayStation sync has been queued. It repeats every "
+        f"{psn_import.SYNC_EVERY_HOURS} hours.",
+    )
 
 
 @require_POST
@@ -3897,6 +3972,7 @@ def psn_disconnect(request):
             task=PSN_RECURRING_TASK_NAME,
         ).delete()
         PSNAccount.objects.filter(user=request.user).delete()
+        PlaytimeSnapshot.objects.filter(user=request.user, source="psn").delete()
 
     _run_with_lock_retry("disconnect PSN", _disconnect)
     messages.info(request, "Disconnected PlayStation Network.")
@@ -3911,7 +3987,15 @@ def import_psn(request):
         messages.error(request, "Connect PlayStation Network before importing.")
         return redirect("import_data")
 
-    _start_console_import(request, "PSN", tasks.import_psn, PSN_RECURRING_TASK_NAME)
+    wants_existing = _psn_import_existing_playtime(
+        request,
+        default=account.import_existing_playtime,
+    )
+    if wants_existing != account.import_existing_playtime:
+        account.import_existing_playtime = wants_existing
+        account.save(update_fields=["import_existing_playtime"])
+
+    _run_with_lock_retry("schedule PSN import", lambda: _sync_psn_now(request))
     return redirect("import_data")
 
 
@@ -4859,7 +4943,7 @@ def export_csv_letterboxd(request):
 def jellyfin_webhook(request, token):
     """Handle Jellyfin webhook notifications for media playback."""
     try:
-        user = users.models.User.objects.get(token=token)
+        user = users.models.User.objects.get(token=token, is_active=True)
     except ObjectDoesNotExist:
         logger.warning(
             "Could not process Jellyfin webhook: Invalid token: %s",
@@ -4872,7 +4956,12 @@ def jellyfin_webhook(request, token):
         logger.warning("Missing payload in Jellyfin webhook request")
         return HttpResponse("Missing payload", status=400)
 
-    payload = json.loads(data)
+    try:
+        payload = json.loads(data)
+    except (ValueError, UnicodeDecodeError):
+        return HttpResponse("Invalid JSON", status=400)
+    if not isinstance(payload, dict):
+        return HttpResponse("Invalid payload", status=400)
     if not _queue_task_quietly(tasks.process_webhook, "jellyfin", payload, user.id):
         return HttpResponse(status=503)
     return HttpResponse(status=200)
@@ -4884,7 +4973,7 @@ def jellyfin_webhook(request, token):
 def plex_webhook(request, token):
     """Handle Plex webhook notifications for media playback."""
     try:
-        user = users.models.User.objects.get(token=token)
+        user = users.models.User.objects.get(token=token, is_active=True)
     except ObjectDoesNotExist:
         logger.warning(
             "Could not process Plex webhook: Invalid token: %s",
@@ -4941,7 +5030,7 @@ def plex_webhook(request, token):
 def emby_webhook(request, token):
     """Handle Emby webhook notifications for media playback."""
     try:
-        user = users.models.User.objects.get(token=token)
+        user = users.models.User.objects.get(token=token, is_active=True)
     except ObjectDoesNotExist:
         logger.warning(
             "Could not process Emby webhook: Invalid token: %s",
@@ -4957,7 +5046,12 @@ def emby_webhook(request, token):
         logger.warning("Missing payload in Emby webhook request")
         return HttpResponse("Missing payload", status=400)
 
-    payload = json.loads(data)
+    try:
+        payload = json.loads(data)
+    except (ValueError, UnicodeDecodeError):
+        return HttpResponse("Invalid JSON", status=400)
+    if not isinstance(payload, dict):
+        return HttpResponse("Invalid payload", status=400)
     if not _queue_task_quietly(tasks.process_webhook, "emby", payload, user.id):
         return HttpResponse(status=503)
     return HttpResponse(status=200)
@@ -4970,7 +5064,7 @@ def emby_webhook(request, token):
 def jellyseerr_webhook(request, token):
     """Handle Seerr webhook notifications for requested/approved media."""
     try:
-        user = users.models.User.objects.get(token=token)
+        user = users.models.User.objects.get(token=token, is_active=True)
     except ObjectDoesNotExist:
         logger.warning(
             "Could not process Seerr webhook: Invalid token: %s",
@@ -5036,6 +5130,7 @@ def seerr_global_webhook(request):
     queued = True
     for user in users.models.User.objects.filter(
         jellyseerr_enabled=True,
+        is_active=True,
     ).exclude(jellyseerr_allowed_usernames=""):
         allowed = {
             username.strip().lower()
@@ -5063,7 +5158,7 @@ def seerr_global_webhook(request):
 def kodi_webhook(request, token):
     """Handle Kodi webhook notifications for media playback."""
     try:
-        user = users.models.User.objects.get(token=token)
+        user = users.models.User.objects.get(token=token, is_active=True)
     except ObjectDoesNotExist:
         logger.warning(
             "Could not process Kodi webhook: Invalid token: %s",
@@ -5171,7 +5266,7 @@ def stremio_addon_catalog(
 def stremio_addon_configure(request, token, config=None):
     """Serve the addon configuration page for a user's install URL."""
     try:
-        user = users.models.User.objects.get(token=token)
+        user = users.models.User.objects.get(token=token, is_active=True)
     except ObjectDoesNotExist:
         logger.warning("Invalid token on Stremio addon configure request")
         return HttpResponse("Invalid token", status=401)
@@ -5235,7 +5330,7 @@ def stremio_addon_meta(request, token, media_type, media_id):
     if grant is not None:
         stremio_catalog.touch_grant(grant)
 
-    meta = stremio_catalog.project_meta(user, media_type, media_id)
+    meta = stremio_catalog.project_meta(user, media_type, media_id, grant=grant)
     if meta is None:
         # Empty rather than 404: the item is simply not in this library, and
         # Stremio treats a 404 as the add-on being broken.

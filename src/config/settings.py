@@ -1401,6 +1401,10 @@ AUDIOBOOKSHELF_POLL_INTERVAL_MINUTES = config(
 
 TESTING = False
 
+# Drop-in music listen hooks. Empty means none load. See
+# docs/architecture/music-listen-hooks.md.
+MUSIC_HOOKS_DIR = config("MUSIC_HOOKS_DIR", default="")
+
 HEALTHCHECK_CELERY_PING_TIMEOUT = config(
     "HEALTHCHECK_CELERY_PING_TIMEOUT",
     default=1,
@@ -1501,7 +1505,7 @@ CELERY_BROKER_POOL_LIMIT = config(
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 # Retry forever rather than exit: the container restarts into the same
 # situation, so giving up only turns a slow Redis into a crash loop.
-CELERY_BROKER_CONNECTION_MAX_RETRIES = 0
+CELERY_BROKER_CONNECTION_MAX_RETRIES = None
 
 # ``integrations.tasks`` keeps its historical public re-exports lazy so web
 # workers do not load every importer while resolving URLs. Celery workers still
@@ -2074,4 +2078,10 @@ if not REGISTRATION:
 
 REDIRECT_LOGIN_TO_SSO = config("REDIRECT_LOGIN_TO_SSO", default=False, cast=bool)
 
-DEMO_ACCOUNT_ENABLED = config("DEMO_ACCOUNT_ENABLED", default=True, cast=bool)
+# Demo provisioning is opt-in. It creates a publicly known login
+# (demo/demodemo) after migrations, which is what a shared demo install
+# wants and what a private install must set DEMO_ACCOUNT_ENABLED=True to
+# get. Existing installs that already provisioned the account keep it:
+# this setting gates provisioning, not the account itself (see
+# floppy_preflight's demo check for how to notice and retire it).
+DEMO_ACCOUNT_ENABLED = config("DEMO_ACCOUNT_ENABLED", default=False, cast=bool)
