@@ -151,7 +151,7 @@
       box-shadow: 0 10px 25px rgba(0, 0, 0, 0.35);
       overflow-x: hidden;
       overflow-y: auto;
-      /* Keep the menu on screen on short windows; it scrolls instead. */
+      /* Fallback only: date-range.js caps each open menu to the room left below it. */
       max-height: calc(100dvh - 12rem);
     }
     .stats-range-panel {

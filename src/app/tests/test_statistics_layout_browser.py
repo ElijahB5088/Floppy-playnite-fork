@@ -126,16 +126,22 @@ class StatisticsLayoutTests(SerialStaticLiveServerTestCase):
                 self.assertTrue(inside)
 
     def test_dropdown_menus_stay_on_a_short_screen(self):
-        page = self.open_statistics(1100, height=600)
-        for button, panel in (
-            (".stats-mediatype-button", ".stats-mediatype-wrapper"),
-            (".stats-range-button", ".stats-range-wrapper"),
-        ):
-            with self.subTest(menu=button):
-                page.locator(button).click()
-                menu = page.locator(f"{panel} .stats-dropdown-panel")
-                expect(menu).to_be_visible()
-                bottom = menu.evaluate("(el) => el.getBoundingClientRect().bottom")
-                self.assertLessEqual(bottom, 600)
-                page.locator(button).click()
-                expect(menu).to_be_hidden()
+        # 640px is where the toolbar wraps and the "Updated ... ago" line pushes the
+        # menus further down, so the room left below them is smaller than at 1100px.
+        for width in (1100, 640):
+            page = self.open_statistics(width, height=600)
+            for button, panel in (
+                (".stats-mediatype-button", ".stats-mediatype-wrapper"),
+                (".stats-range-button", ".stats-range-wrapper"),
+                (".stats-compare-button", ".stats-compare-wrapper"),
+            ):
+                with self.subTest(width=width, menu=button):
+                    page.locator(button).click()
+                    menu = page.locator(f"{panel} .stats-dropdown-panel")
+                    expect(menu).to_be_visible()
+                    # Let the open animation finish before measuring.
+                    page.wait_for_timeout(400)
+                    bottom = menu.evaluate("(el) => el.getBoundingClientRect().bottom")
+                    self.assertLessEqual(bottom, 600)
+                    page.locator(button).click()
+                    expect(menu).to_be_hidden()
