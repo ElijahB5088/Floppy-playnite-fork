@@ -1,7 +1,10 @@
+import base64
 import contextlib
+import hashlib
 import json
 import logging
 import random
+import secrets
 import sqlite3
 import time
 from collections import OrderedDict, defaultdict
@@ -116,13 +119,32 @@ def _parse_watched_at(watched_at: str):
     return parse_datetime(watched_at)
 
 
+def new_pkce_pair():
+    """Return a fresh PKCE (S256) ``(code_verifier, code_challenge)`` pair.
+
+    Trakt apps made without a client secret authorize with PKCE instead.
+    """
+    code_verifier = secrets.token_urlsafe(64)
+    code_challenge = (
+        base64.urlsafe_b64encode(hashlib.sha256(code_verifier.encode()).digest())
+        .decode()
+        .rstrip("=")
+    )
+    return code_verifier, code_challenge
+
+
 def handle_oauth_callback(
     request,
     redirect_uri=None,
     client_id=None,
     client_secret=None,
+    code_verifier=None,
 ):
-    """View for getting the Trakt OAuth2 token."""
+    """View for getting the Trakt OAuth2 token.
+
+    An app without a client secret proves itself with the PKCE ``code_verifier``
+    that matches the challenge sent when authorizing.
+    """
     code = request.GET["code"]
 
     url = "https://api.trakt.tv/oauth/token"
@@ -139,11 +161,14 @@ def handle_oauth_callback(
 
     params = {
         "client_id": client_id,
-        "client_secret": client_secret,
         "code": code,
         "grant_type": "authorization_code",
         "redirect_uri": redirect_uri,
     }
+    if client_secret:
+        params["client_secret"] = client_secret
+    if code_verifier:
+        params["code_verifier"] = code_verifier
 
     try:
         token_response = app.providers.services.api_request(
@@ -237,7 +262,7 @@ def request_device_code(client_id=None):
         logger.warning("Trakt device code request failed: %s", error)
         msg = (
             "Could not start Trakt authorization. "
-            "Check TRAKT_API and TRAKT_API_SECRET."
+            "Check your Trakt client ID (and client secret, if your app has one)."
         )
         raise MediaImportError(msg) from error
 
@@ -272,7 +297,7 @@ def poll_device_token(device_code, client_id=None, client_secret=None):
             json={
                 "code": device_code,
                 "client_id": client_id,
-                "client_secret": client_secret,
+                **({"client_secret": client_secret} if client_secret else {}),
             },
             timeout=settings.REQUEST_TIMEOUT,
         )
@@ -329,11 +354,13 @@ def get_access_token(encrypted_refresh_token, redirect_uri=None):
 
     params = {
         "client_id": credentials.get("trakt", "client_id"),
-        "client_secret": credentials.get("trakt", "client_secret"),
         "refresh_token": decrypted_token,
         "grant_type": "refresh_token",
         "redirect_uri": redirect_uri or _refresh_redirect_uri(),
     }
+    # Apps made without a client secret (PKCE) refresh with the client ID alone.
+    if client_secret := credentials.get("trakt", "client_secret"):
+        params["client_secret"] = client_secret
 
     try:
         request = app.providers.services.api_request(

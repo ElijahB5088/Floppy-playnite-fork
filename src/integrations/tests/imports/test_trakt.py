@@ -1,3 +1,5 @@
+import base64
+import hashlib
 import json
 import sqlite3
 import tempfile
@@ -3604,3 +3606,104 @@ class TraktRefreshUsesAuthorizedRedirectUri(TestCase):
         self.assertEqual(result["redirect_uri"], self.CALLBACK_URI)
         sent = mock_api_request.call_args.kwargs["params"]
         self.assertEqual(sent["redirect_uri"], self.CALLBACK_URI)
+
+
+class TraktWithoutClientSecret(TestCase):
+    """An app made without a client secret (PKCE) never sends one (#1523)."""
+
+    CALLBACK_URI = "https://floppy.example.com/import/trakt/private"
+
+    def test_pkce_pair_is_an_s256_challenge_of_the_verifier(self):
+        verifier, challenge = trakt.new_pkce_pair()
+
+        digest = hashlib.sha256(verifier.encode()).digest()
+        self.assertEqual(
+            challenge,
+            base64.urlsafe_b64encode(digest).decode().rstrip("="),
+        )
+        self.assertNotEqual(verifier, trakt.new_pkce_pair()[0])
+
+    @patch("integrations.imports.trakt.get_username_from_oauth", return_value="floppy")
+    @patch("integrations.imports.trakt.services.api_request")
+    def test_code_exchange_sends_the_verifier_and_no_secret(
+        self,
+        mock_api_request,
+        _mock_username,
+    ):
+        mock_api_request.return_value = {"access_token": "a", "refresh_token": "r"}
+        request = RequestFactory().get("/import/trakt/private", {"code": "abc"})
+
+        trakt.handle_oauth_callback(
+            request,
+            redirect_uri=self.CALLBACK_URI,
+            client_id="client",
+            client_secret="",
+            code_verifier="verifier",
+        )
+
+        sent = mock_api_request.call_args.kwargs["params"]
+        self.assertEqual(sent["code_verifier"], "verifier")
+        self.assertNotIn("client_secret", sent)
+
+    @patch("integrations.imports.trakt.get_username_from_oauth", return_value="floppy")
+    @patch("integrations.imports.trakt.services.api_request")
+    def test_code_exchange_with_a_secret_is_unchanged(
+        self,
+        mock_api_request,
+        _mock_username,
+    ):
+        mock_api_request.return_value = {"access_token": "a", "refresh_token": "r"}
+        request = RequestFactory().get("/import/trakt/private", {"code": "abc"})
+
+        trakt.handle_oauth_callback(
+            request,
+            redirect_uri=self.CALLBACK_URI,
+            client_id="client",
+            client_secret="secret",
+        )
+
+        sent = mock_api_request.call_args.kwargs["params"]
+        self.assertEqual(sent["client_secret"], "secret")
+        self.assertNotIn("code_verifier", sent)
+
+    @patch("integrations.imports.trakt.update_refresh_token")
+    @patch("integrations.imports.trakt.helpers.decrypt_or_raise", return_value="old")
+    @patch("integrations.imports.trakt.services.api_request")
+    def test_refresh_omits_the_secret_when_there_is_none(
+        self,
+        mock_api_request,
+        _mock_decrypt,
+        _mock_update,
+    ):
+        mock_api_request.return_value = {"access_token": "a", "refresh_token": "r"}
+
+        with patch(
+            "integrations.imports.trakt.credentials.get",
+            side_effect=lambda _slug, field: {"client_id": "client"}.get(field, ""),
+        ):
+            trakt.get_access_token("enc", self.CALLBACK_URI)
+
+        sent = mock_api_request.call_args.kwargs["params"]
+        self.assertEqual(sent["client_id"], "client")
+        self.assertNotIn("client_secret", sent)
+
+    @patch("integrations.imports.trakt.get_username_from_oauth", return_value="floppy")
+    @patch("integrations.imports.trakt.services.resilient_request")
+    def test_device_poll_omits_the_secret_when_there_is_none(
+        self,
+        mock_request,
+        _mock_username,
+    ):
+        response = Response()
+        response.status_code = 200
+        response._content = json.dumps(
+            {"access_token": "a", "refresh_token": "r"},
+        ).encode()
+        mock_request.return_value = response
+
+        trakt.poll_device_token("device-code", "client", "")
+
+        self.assertEqual(
+            mock_request.call_args.kwargs["json"],
+            {"code": "device-code", "client_id": "client"},
+        )
