@@ -14,6 +14,7 @@ from django.test import TestCase, override_settings
 from app.models import Game
 from app.providers import credentials, igdb
 from app.providers.services import ProviderAPIError, ProviderNotConfiguredError
+from integrations.imports.steam import SteamImporter
 from integrations.models import LastFMAccount
 from integrations.tasks import _lastfm
 from integrations.tasks._media_imports import import_media, import_steam
@@ -135,6 +136,20 @@ class PersonalCredentialsInBackgroundJobsTests(TestCase):
             logs.output[0],
         )
         self.assertNotIn("personal-igdb", "".join(logs.output))
+
+    @override_settings(IGDB_ID="", IGDB_SECRET="", STEAM_API_KEY="")
+    def test_steam_importer_log_names_where_each_key_comes_from(self):
+        """The Steam start-up line survives the log redactor with sources intact."""
+        credentials.set_user("steam", self.user, {"api_key": "personal-steam"})
+
+        with self.assertLogs("integrations.imports.steam", level="INFO") as logs:
+            SteamImporter("76561198000000000", self.user, "new")
+
+        self.assertIn(
+            f"steam_key_from=user; igdb user={self.user.pk} id_from=None secret_from=None",
+            logs.output[0],
+        )
+        self.assertNotIn("personal-steam", "".join(logs.output))
 
     def test_lastfm_poll_resolves_the_users_personal_key(self):
         LastFMAccount.objects.create(user=self.user, lastfm_username="listener")

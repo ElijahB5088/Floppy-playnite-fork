@@ -53,7 +53,7 @@ class SteamImporter:
 
         logger.info(
             "Initialized Steam importer for Steam ID %s with mode %s "
-            "(steam api_key=%s; igdb %s)",
+            "(steam_key_from=%s; igdb %s)",
             steam_id,
             mode,
             credentials.source_of("steam", "api_key", user),
