@@ -3,6 +3,7 @@
 from unittest.mock import patch
 
 from app.models import TV, Episode, Item, MediaTypes, Season, Sources, Status
+from lists.models import CustomList
 
 from .base import FloppyApiTestCase
 
@@ -149,3 +150,21 @@ class AnimeBucketWriteTests(FloppyApiTestCase):
         )
         self.assertEqual(response.status_code, 204)
         self.assertFalse(Season.objects.filter(id=self.season.id).exists())
+
+    def test_season_patch_reports_lists_of_the_anime_bucket_item(self):
+        """The PATCH response lists the anime item's lists, not the TV item's."""
+        favorites = CustomList.objects.create(name="Anime picks", owner=self.user1)
+        favorites.items.add(self.season_item)
+
+        response = self.call_api(
+            "patch",
+            "api_media_season_detail",
+            args=(MediaTypes.TV.value, Sources.TMDB.value, MEDIA_ID, 1),
+            params={"library_media_type": ANIME},
+            payload={"score": 6},
+            headers=self.auth_headers,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        list_ids = [entry["list_id"] for entry in response.json()["lists"]]
+        self.assertEqual(list_ids, [favorites.id])
