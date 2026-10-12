@@ -501,8 +501,8 @@ class ImportPSN(TestCase):
         run.assert_not_called()
         self.assertIn("already in progress", message)
 
-    def test_scheduled_sync_still_runs_when_the_cache_is_down(self):
-        """The lock must not silently stop the schedule while Redis is away."""
+    def test_scheduled_sync_skips_when_the_cache_is_down(self):
+        """Without the lock an overlap could log the same play twice."""
         from integrations import tasks
 
         with (
@@ -514,7 +514,7 @@ class ImportPSN(TestCase):
         ):
             tasks.import_psn_recurring(user_id=self.user.id)
 
-        run.assert_called_once()
+        run.assert_not_called()
 
     def test_sync_releases_its_lock_when_done(self):
         """The lock doesn't outlive the sync it guards."""

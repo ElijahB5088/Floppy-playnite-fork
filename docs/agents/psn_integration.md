@@ -32,8 +32,8 @@ is nothing to overwrite.
 A game deleted in Floppy stays deleted; its snapshot still advances so the old time is not
 logged later.
 
-A scheduled sync still runs when the cache is unreachable (the lock only guards against an overlap), so
-Redis trouble can't silently stop the schedule.
+A scheduled sync is skipped when the cache is unreachable, because without the lock an overlapping sync
+could log the same play twice; the next run picks up the same growth. Sync Now still runs.
 
 Two guards keep the remembered totals honest. Syncs for one user are serialized with a cache lock
 (`_run_psn_import`), so Sync Now and the schedule can't both log the same growth, and the new rows
