@@ -1137,6 +1137,7 @@ class MediaDetailView(drf_views.APIView):
                 media_id,
                 media_type,
                 source,
+                library_media_type=request.query_params.get("library_media_type"),
             )
         except Exception:
             logger.exception("Internal Server Error.")
@@ -1429,6 +1430,7 @@ class MediaDetailView(drf_views.APIView):
                 media_id,
                 media_type,
                 source,
+                library_media_type=request.query_params.get("library_media_type"),
             )
         except Exception:
             logger.exception(HTTP.INTERNAL_SERVER_ERROR.phrase)
@@ -1547,6 +1549,7 @@ class MediaChangesHistoryView(drf_views.APIView):
             media_id,
             media_type,
             source,
+            library_media_type=request.query_params.get("library_media_type"),
         )
 
         if not user_medias:
@@ -1605,6 +1608,7 @@ class MediaConsumptionHistoryView(drf_views.APIView):
                 media_id,
                 media_type,
                 source,
+                library_media_type=request.query_params.get("library_media_type"),
             )
         except Exception:
             logger.exception("Internal Server Error.")
@@ -1678,6 +1682,7 @@ class MediaConsumptionEntryDetailView(drf_views.APIView):
                 media_id,
                 media_type,
                 source,
+                library_media_type=request.query_params.get("library_media_type"),
             )
         except Exception:
             logger.exception("Internal Server Error.")
@@ -1729,6 +1734,7 @@ class MediaConsumptionEntryDetailView(drf_views.APIView):
                 media_id,
                 media_type,
                 source,
+                library_media_type=request.query_params.get("library_media_type"),
             )
         except Exception:
             logger.exception(HTTP.INTERNAL_SERVER_ERROR.phrase)
@@ -1793,6 +1799,7 @@ class MediaConsumptionEntryDetailView(drf_views.APIView):
                 media_id,
                 media_type,
                 source,
+                library_media_type=request.query_params.get("library_media_type"),
             )
         except Exception:
             logger.exception(HTTP.INTERNAL_SERVER_ERROR.phrase)
@@ -2415,6 +2422,7 @@ class MediaSeasonDetailView(drf_views.APIView):
                 "season",
                 source,
                 season_number=season_number,
+                library_media_type=request.query_params.get("library_media_type"),
             )
         except Exception:
             logger.exception(HTTP.INTERNAL_SERVER_ERROR.phrase)
@@ -2625,6 +2633,7 @@ class MediaSeasonDetailView(drf_views.APIView):
                 "season",
                 source,
                 season_number=season_number,
+                library_media_type=request.query_params.get("library_media_type"),
             )
         except Exception:
             logger.exception(HTTP.INTERNAL_SERVER_ERROR.phrase)
@@ -3011,6 +3020,7 @@ class MediaSeasonConsumptionEntryDetailView(drf_views.APIView):
                 "season",
                 source,
                 season_number=season_number,
+                library_media_type=request.query_params.get("library_media_type"),
             )
         except Exception:
             logger.exception("Failed to retrieve consumption entry.")
@@ -3064,6 +3074,7 @@ class MediaSeasonConsumptionEntryDetailView(drf_views.APIView):
                 "season",
                 source,
                 season_number=season_number,
+                library_media_type=request.query_params.get("library_media_type"),
             )
         except Exception:
             logger.exception(HTTP.INTERNAL_SERVER_ERROR.phrase)
@@ -3127,6 +3138,7 @@ class MediaSeasonConsumptionEntryDetailView(drf_views.APIView):
                 "season",
                 source,
                 season_number=season_number,
+                library_media_type=request.query_params.get("library_media_type"),
             )
         except Exception:
             logger.exception(HTTP.INTERNAL_SERVER_ERROR.phrase)
@@ -3637,6 +3649,7 @@ class MediaEpisodeDetailView(drf_views.APIView):
                 source,
                 season_number=season_number,
                 episode_number=episode_number,
+                library_media_type=request.query_params.get("library_media_type"),
             )
         except Exception:
             logger.exception("An error occurred while fetching media.")
@@ -3837,6 +3850,7 @@ class MediaEpisodeDetailView(drf_views.APIView):
                 source,
                 season_number=season_number,
                 episode_number=episode_number,
+                library_media_type=request.query_params.get("library_media_type"),
             )
         except Exception:
             logger.exception("An error occurred while fetching user media.")
@@ -4177,6 +4191,7 @@ class MediaEpisodeConsumptionEntryDetailView(drf_views.APIView):
                 source,
                 season_number=season_number,
                 episode_number=episode_number,
+                library_media_type=request.query_params.get("library_media_type"),
             )
         except Exception as e:
             return Response(
@@ -4251,6 +4266,7 @@ class MediaEpisodeConsumptionEntryDetailView(drf_views.APIView):
                 source,
                 season_number=season_number,
                 episode_number=episode_number,
+                library_media_type=request.query_params.get("library_media_type"),
             )
         except Exception as e:
             return Response(
@@ -4327,6 +4343,7 @@ class MediaEpisodeConsumptionEntryDetailView(drf_views.APIView):
                 source,
                 season_number=season_number,
                 episode_number=episode_number,
+                library_media_type=request.query_params.get("library_media_type"),
             )
         except Exception as e:
             return Response(
