@@ -158,7 +158,9 @@ class IntegrationTest(SerialStaticLiveServerTestCase):
             }"""
         )
         self.page.locator("#contention-test-button").click()
-        expect(self.page.locator("#contention-test-target #contention-loaded")).to_be_visible()
+        expect(
+            self.page.locator("#contention-test-target #contention-loaded")
+        ).to_be_visible()
         self.assertEqual(len(requests), 3)
         for request_url in requests:
             query = parse_qs(urlparse(request_url).query)
@@ -1305,16 +1307,22 @@ class IntegrationTest(SerialStaticLiveServerTestCase):
             runtime_minutes=95,
         )
 
-    def _saved_movie(self, item):
-        """Return the saved Movie once the modal's HTMX save has landed."""
-        movie = None
-        for _ in range(50):
-            movie = Movie.objects.filter(item=item, user=self.user).first()
-            if movie:
-                break
-            self.page.wait_for_timeout(200)
-        self.assertIsNotNone(movie, "The track modal never saved the movie")
-        return movie
+    def _save_movie(self, modal, item):
+        """Click Add and return the saved Movie once the server has answered.
+
+        The test must not read app_movie while the save request is still
+        running: the live server and the test share one SQLite database, and
+        an overlapping read makes the request fail with "table is locked".
+        """
+        with self.page.expect_response(
+            lambda response: (
+                response.request.method == "POST" and "/media_save" in response.url
+            ),
+        ) as save_response:
+            modal.get_by_role("button", name="Add", exact=True).click()
+        self.assertEqual(save_response.value.status, 200)
+        expect(self.page.locator("[data-track-modal-root]:visible")).to_have_count(0)
+        return Movie.objects.filter(item=item, user=self.user).first()
 
     def _ms(self, value):
         """Milliseconds since epoch for a datetime-local input value."""
@@ -1406,9 +1414,8 @@ class IntegrationTest(SerialStaticLiveServerTestCase):
         modal = self._open_new_movie_tracker(Status.COMPLETED.value)
         expect(modal.locator('input[name="end_date"]')).to_have_value("")
         before = timezone.now()
-        modal.get_by_role("button", name="Add", exact=True).click()
-        expect(self.page.locator("[data-track-modal-root]:visible")).to_have_count(0)
-        movie = self._saved_movie(item)
+        movie = self._save_movie(modal, item)
+        self.assertIsNotNone(movie)
         self.assertIsNotNone(movie.end_date)
         self.assertGreaterEqual(movie.end_date, before - timedelta(minutes=1))
         self.assertLessEqual(movie.end_date, timezone.now() + timedelta(minutes=1))
@@ -1421,12 +1428,13 @@ class IntegrationTest(SerialStaticLiveServerTestCase):
             name="None",
             exact=True,
         ).click()
-        expect(modal.get_by_role("group", name="End date quick actions")).to_contain_text(
+        expect(
+            modal.get_by_role("group", name="End date quick actions")
+        ).to_contain_text(
             "Not set",
         )
-        modal.get_by_role("button", name="Add", exact=True).click()
-        expect(self.page.locator("[data-track-modal-root]:visible")).to_have_count(0)
-        movie = self._saved_movie(item)
+        movie = self._save_movie(modal, item)
+        self.assertIsNotNone(movie)
         self.assertIsNone(movie.end_date)
 
     @patch("app.models.Item.fetch_releases")
