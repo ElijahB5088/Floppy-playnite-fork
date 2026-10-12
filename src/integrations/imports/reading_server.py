@@ -19,7 +19,7 @@ from django.utils import timezone
 
 from app.models import Item, Sources, Status
 from app.services.synced_status import keep_held_status
-from integrations import connection_health
+from integrations import connection_health, import_progress
 from integrations.imports.helpers import (
     ConnectionAuthError,
     MediaImportError,
@@ -96,9 +96,10 @@ def write_reading_progress(
     """
     existing = (
         model.objects.filter(user=user, item=item)
-        .only("progress", "status", "start_date", "end_date")
+        .only("progress", "status", "start_date", "end_date", "import_run")
         .first()
     )
+    import_run_id = import_progress.get_current_import_run_id()
     defaults = {
         "progress": progress,
         "status": Status.COMPLETED.value if completed else Status.IN_PROGRESS.value,
@@ -115,6 +116,8 @@ def write_reading_progress(
             else None
         ),
     }
+    if import_run_id:
+        defaults["import_run_id"] = import_run_id
     defaults = keep_held_status(existing, defaults, read_at)
 
     if existing and all(
