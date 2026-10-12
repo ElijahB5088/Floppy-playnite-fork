@@ -141,6 +141,32 @@ class KavitaImporterTests(TestCase):
         self.assertIsNone(self.account.last_sync_at)
         mock_import_data.assert_called_once_with()
 
+    def test_incremental_sync_uses_chapter_read_date_when_series_date_missing(self):
+        self.account.last_sync_at = datetime(2026, 9, 15, tzinfo=UTC)
+        self.account.save(update_fields=["last_sync_at"])
+        series = _series(2, name="Saga", latestReadDate=None)
+        chapters = [
+            _chapter(
+                21,
+                pages_read=20,
+                number=1,
+                comicVineId="301",
+                lastReadingProgressUtc=None,
+            ),
+        ]
+        fake = FakeKavita([series], {2: _detail(COMIC, chapters)})
+        fake.chapter_metadata[21] = {
+            "lastReadingProgressUtc": "2026-09-20T12:00:00Z",
+        }
+        with patch("integrations.imports.kavita.request_json", side_effect=fake):
+            kavita.importer(None, self.user, "new")
+
+        issue = ComicIssue.objects.get(user=self.user, item__media_id="301")
+        self.assertEqual(
+            issue.end_date,
+            datetime(2026, 9, 20, 12, 0, tzinfo=UTC),
+        )
+
     def test_fully_read_manga_is_completed_on_the_read_date(self):
         series = _series(1, malId=13, pages=40, pages_read=40)
         chapters = [

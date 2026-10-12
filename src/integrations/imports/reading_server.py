@@ -88,6 +88,7 @@ def write_reading_progress(
     read_at,
     started_at,
     entry_source,
+    update_end_date=False,
 ):
     """Save reading progress; return True if created, False if updated.
 
@@ -105,9 +106,13 @@ def write_reading_progress(
         or started_at
         or read_at,
         "end_date": (
-            (read_at or (existing.end_date if existing else None))
+            (
+                read_at
+                if update_end_date
+                else ((existing.end_date if existing else None) or read_at)
+            )
             if completed
-            else (existing.end_date if existing else None)
+            else None
         ),
     }
     defaults = keep_held_status(existing, defaults, read_at)

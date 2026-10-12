@@ -385,9 +385,9 @@ class KavitaImporter(ReadingServerImporter):
             read_at = parse_datetime(series.get("latestReadDate"))
             if cutoff and read_at and read_at < cutoff:
                 continue
-            self._import_series(series, read_at, links, counts)
+            self._import_series(series, read_at, cutoff, links, counts)
 
-    def _import_series(self, series, read_at, links, counts):
+    def _import_series(self, series, read_at, cutoff, links, counts):
         """Write one series' progress as a manga, book or comic issues."""
         detail = self.client.series_detail(series["id"])
         library_type = detail.get("libraryType")
@@ -406,6 +406,19 @@ class KavitaImporter(ReadingServerImporter):
             self._import_comic_series(series, chapters, read_at, links, counts)
             for chapter in chapters:
                 if int(chapter.get("pagesRead") or 0) > 0:
+                    chapter_read_at = parse_datetime(
+                        chapter.get("lastReadingProgressUtc"),
+                    )
+                    if chapter_read_at is None:
+                        chapter_read_at = parse_datetime(
+                            self.client.chapter_metadata(chapter["id"]).get(
+                                "lastReadingProgressUtc",
+                            ),
+                        )
+                    if cutoff and (
+                        chapter_read_at is None or chapter_read_at < cutoff
+                    ):
+                        continue
                     if self.enable_provider_enrichment and not chapter.get("comicVineId"):
                         metadata = self.client.chapter_metadata(chapter["id"])
                         chapter["comicVineId"] = metadata.get("comicVineId")
@@ -414,7 +427,13 @@ class KavitaImporter(ReadingServerImporter):
                                 metadata.get("webLinks"),
                                 4000,
                             )
-                    self._import_comic_issue(series, chapter, read_at, links, counts)
+                    self._import_comic_issue(
+                        series,
+                        chapter,
+                        chapter_read_at or read_at,
+                        links,
+                        counts,
+                    )
 
     def _import_comic_series(self, series, chapters, read_at, links, counts):
         """Track the Kavita comic series by its read-issue count."""
@@ -689,6 +708,7 @@ class KavitaImporter(ReadingServerImporter):
                             or read_at,
                             started_at=None,
                             entry_source=ENTRY_SOURCE,
+                            update_end_date=True,
                         ),
                     ),
                 )
@@ -716,6 +736,7 @@ class KavitaImporter(ReadingServerImporter):
                 or read_at,
                 started_at=None,
                 entry_source=ENTRY_SOURCE,
+                update_end_date=True,
             ),
             force_resolve=linked_manual,
         )
