@@ -134,6 +134,25 @@ if (!window.__floppyDateTimePickerBound) {
       return Boolean(this.value);
     },
 
+    // True while the track modal's auto-fill put this value there and the user
+    // hasn't touched it. Such a value is a default, not a choice: the shortcuts
+    // stay available and may replace it.
+    get isAutoFilled() {
+      return this.hasValue && this.isAutoFilledField(this.fieldName);
+    },
+
+    isAutoFilledField(fieldName) {
+      if (!window.Alpine) {
+        return false;
+      }
+      try {
+        const form = this.$refs.hiddenInput.closest("form");
+        return Boolean(form && Alpine.$data(form)?.autoFilled?.[fieldName]);
+      } catch {
+        return false;
+      }
+    },
+
     get displayText() {
       const parts = this.parts();
       if (!parts) {
@@ -388,7 +407,9 @@ if (!window.__floppyDateTimePickerBound) {
       }
     },
 
-    commitPairedValue(newValue) {
+    // replaceAutoFilled lets the shortcut replace a paired value the modal
+    // auto-filled and the user never touched; a value the user chose is kept.
+    commitPairedValue(newValue, replaceAutoFilled = false) {
       const pairedFieldName =
         this.fieldName === "start_date"
           ? "end_date"
@@ -404,7 +425,10 @@ if (!window.__floppyDateTimePickerBound) {
       if (!pairedInput || pairedInput === this.$refs.hiddenInput) {
         return;
       }
-      if (pairedInput.value) {
+      if (
+        pairedInput.value &&
+        !(replaceAutoFilled && this.isAutoFilledField(pairedFieldName))
+      ) {
         // Don't overwrite a date the user (or an earlier quick action) already set.
         return;
       }
@@ -437,10 +461,10 @@ if (!window.__floppyDateTimePickerBound) {
         );
         if (this.fieldName === "start_date") {
           this.commit(nowValue);
-          this.commitPairedValue(endValue);
+          this.commitPairedValue(endValue, true);
         } else if (this.fieldName === "end_date") {
           this.commit(endValue);
-          this.commitPairedValue(nowValue);
+          this.commitPairedValue(nowValue, true);
         } else {
           this.commit(nowValue);
         }
@@ -455,12 +479,15 @@ if (!window.__floppyDateTimePickerBound) {
         const startValue = this.formatValueFromDate(
           new Date(now.getTime() - (runtimeMinutes || 0) * 60000),
         );
+        // Without a runtime the start would just be "now". An auto-filled start
+        // is then left alone: it may come from the Progress field (games).
+        const replaceAutoFilled = runtimeMinutes !== null;
         if (this.fieldName === "start_date") {
           this.commit(startValue);
-          this.commitPairedValue(nowValue);
+          this.commitPairedValue(nowValue, true);
         } else if (this.fieldName === "end_date") {
           this.commit(nowValue);
-          this.commitPairedValue(startValue);
+          this.commitPairedValue(startValue, replaceAutoFilled);
         } else {
           this.commit(nowValue);
         }

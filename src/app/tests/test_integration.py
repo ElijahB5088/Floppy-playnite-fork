@@ -1,5 +1,6 @@
 import copy
 import os
+import re
 from datetime import UTC, date, datetime, timedelta
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
@@ -1258,6 +1259,199 @@ class IntegrationTest(SerialStaticLiveServerTestCase):
 
         expect(start_date_input).to_have_value(
             (end_dt - timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M"),
+        )
+
+    def _open_new_movie_tracker(self, status):
+        """Open the Add to tracker modal on the movie page and pick a status."""
+        self.page.goto(
+            self.live_server_url
+            + reverse(
+                "media_details",
+                kwargs={
+                    "source": Sources.TMDB.value,
+                    "media_type": MediaTypes.MOVIE.value,
+                    "media_id": "238",
+                    "title": "test-movie",
+                },
+            ),
+        )
+        expect(self.page.get_by_role("main")).to_contain_text("Test Movie")
+        self.page.get_by_role("button", name="Add to tracker").click()
+        modal = self.page.locator("[data-track-modal-root]:visible").first
+        expect(modal).to_be_visible()
+        modal.locator('select[name="status"]').select_option(status)
+        return modal
+
+    def _ms(self, value):
+        """Milliseconds since epoch for a datetime-local input value."""
+        return self.page.evaluate("value => new Date(value).getTime()", value)
+
+    @patch("app.providers.services.get_media_metadata")
+    def test_track_modal_autofilled_end_date_does_not_block_shortcuts(
+        self,
+        mock_get_metadata,
+    ):
+        """An end date the modal filled in is a default: shortcuts still apply.
+
+        A date the user picked is still left alone.
+        """
+        mock_get_metadata.return_value = {
+            "media_id": "238",
+            "title": "Test Movie",
+            "media_type": MediaTypes.MOVIE.value,
+            "source": Sources.TMDB.value,
+            "image": "http://example.com/image.jpg",
+            "max_progress": 1,
+            "score": 7.6,
+            "score_count": 42000,
+            "details": {"release_date": "2019-11-08"},
+            "related": {},
+        }
+        Item.objects.create(
+            media_id="238",
+            source=Sources.TMDB.value,
+            media_type=MediaTypes.MOVIE.value,
+            title="Test Movie",
+            image="http://example.com/image.jpg",
+            runtime_minutes=95,
+        )
+        runtime_ms = 95 * 60 * 1000
+
+        # Completed fills the end date, and Just Finished is still offered.
+        modal = self._open_new_movie_tracker(Status.COMPLETED.value)
+        end_input = modal.locator('input[name="end_date"]')
+        start_input = modal.locator('input[name="start_date"]')
+        end_actions = modal.get_by_role("group", name="End date quick actions")
+        start_actions = modal.get_by_role("group", name="Start date quick actions")
+        expect(end_input).not_to_have_value("")
+        expect(start_input).to_have_value("")
+        expect(end_actions).to_be_visible()
+
+        # Just Finished sets the end to now and the start a runtime earlier.
+        before = self.page.evaluate("Date.now()")
+        end_actions.get_by_role("button", name="Just Finished", exact=True).click()
+        after = self.page.evaluate("Date.now()")
+        end_ms = self._ms(end_input.input_value())
+        start_ms = self._ms(start_input.input_value())
+        self.assertGreaterEqual(end_ms, before - 1000)
+        self.assertLessEqual(end_ms, after + 1000)
+        self.assertGreaterEqual(start_ms, before - runtime_ms - 1000)
+        self.assertLessEqual(start_ms, after - runtime_ms + 1000)
+        expect(end_actions).not_to_be_visible()
+
+        # Start Now replaces the auto-filled end with now plus the runtime.
+        modal = self._open_new_movie_tracker(Status.COMPLETED.value)
+        end_input = modal.locator('input[name="end_date"]')
+        start_input = modal.locator('input[name="start_date"]')
+        start_actions = modal.get_by_role("group", name="Start date quick actions")
+        before = self.page.evaluate("Date.now()")
+        start_actions.get_by_role("button", name="Start Now", exact=True).click()
+        after = self.page.evaluate("Date.now()")
+        start_ms = self._ms(start_input.input_value())
+        end_ms = self._ms(end_input.input_value())
+        self.assertGreaterEqual(start_ms, before - 1000)
+        self.assertLessEqual(start_ms, after + 1000)
+        self.assertGreaterEqual(end_ms, before + runtime_ms - 1000)
+        self.assertLessEqual(end_ms, after + runtime_ms + 1000)
+        expect(modal.locator('select[name="status"]')).to_have_value(
+            Status.IN_PROGRESS.value,
+        )
+
+        # An end date the user picked is kept when Start Now is pressed.
+        modal = self._open_new_movie_tracker(Status.COMPLETED.value)
+        end_input = modal.locator('input[name="end_date"]')
+        start_input = modal.locator('input[name="start_date"]')
+        start_actions = modal.get_by_role("group", name="Start date quick actions")
+        modal.get_by_role("button", name="Open End date picker").click()
+        end_picker = modal.get_by_role("dialog", name="End date picker")
+        end_picker.get_by_role("button", name="Release Date", exact=True).click()
+        expect(end_input).to_have_value(
+            re.compile(r"^2019-11-08T"),
+        )
+        expect(
+            modal.get_by_role("group", name="End date quick actions")
+        ).not_to_be_visible()
+        # Picking a release date back-fills the start from the runtime; clear it
+        # so the Start Now shortcut is offered again.
+        modal.locator(".date-picker-closed-field").first.get_by_role(
+            "button",
+            name="Clear date",
+        ).click()
+        start_actions.get_by_role("button", name="Start Now", exact=True).click()
+        expect(start_input).not_to_have_value("")
+        expect(end_input).to_have_value(re.compile(r"^2019-11-08T"))
+
+    @patch("app.models.Item.fetch_releases")
+    @patch("app.views._should_queue_game_lengths_refresh", return_value=False)
+    @patch("app.providers.services.get_media_metadata")
+    def test_game_progress_start_date_survives_just_finished(
+        self,
+        mock_get_metadata,
+        _mock_should_queue_game_lengths_refresh,
+        _mock_fetch_releases,
+    ):
+        """New game entry: progress still derives the start from the end date.
+
+        Just Finished moves the end to now without throwing that start away.
+        """
+        mock_get_metadata.return_value = {
+            "media_id": "186090",
+            "title": "Wordle",
+            "media_type": MediaTypes.GAME.value,
+            "source": Sources.IGDB.value,
+            "image": "http://example.com/wordle.jpg",
+            "details": {"release_date": "2021-06-21"},
+            "related": {},
+            "score": 8.5,
+            "score_count": 17,
+        }
+        Item.objects.create(
+            media_id="186090",
+            source=Sources.IGDB.value,
+            media_type=MediaTypes.GAME.value,
+            title="Wordle",
+            image="http://example.com/wordle.jpg",
+            release_datetime=datetime(2021, 6, 21, 12, 0, tzinfo=UTC),
+        )
+        self.page.goto(
+            self.live_server_url
+            + reverse(
+                "media_details",
+                kwargs={
+                    "source": Sources.IGDB.value,
+                    "media_type": MediaTypes.GAME.value,
+                    "media_id": "186090",
+                    "title": "wordle",
+                },
+            ),
+        )
+        expect(self.page.get_by_role("main")).to_contain_text("Wordle")
+        self.page.get_by_role("button", name="Add to tracker").click()
+        modal = self.page.locator("[data-track-modal-root]:visible").first
+        expect(modal).to_be_visible()
+        modal.locator('select[name="status"]').select_option(Status.IN_PROGRESS.value)
+
+        end_input = modal.locator('input[name="end_date"]')
+        start_input = modal.locator('input[name="start_date"]')
+        expect(end_input).not_to_have_value("")
+        modal.locator('input[name="progress"]').fill("90min")
+        expect(start_input).not_to_have_value("")
+        auto_start_ms = self._ms(start_input.input_value())
+        auto_end_ms = self._ms(end_input.input_value())
+        self.assertEqual(auto_end_ms - auto_start_ms, 90 * 60 * 1000)
+
+        modal.get_by_role("group", name="End date quick actions").get_by_role(
+            "button",
+            name="Just Finished",
+            exact=True,
+        ).click()
+        end_ms = self._ms(end_input.input_value())
+        start_ms = self._ms(start_input.input_value())
+        self.assertGreaterEqual(end_ms, auto_end_ms)
+        # Still about 90 minutes before the end, not collapsed onto it.
+        self.assertAlmostEqual(end_ms - start_ms, 90 * 60 * 1000, delta=60 * 1000)
+        expect(modal.locator('select[name="status"]')).to_have_value(
+            Status.COMPLETED.value,
         )
 
     def test_statistics_status_composition_legend_scrolls_without_page_overflow(self):

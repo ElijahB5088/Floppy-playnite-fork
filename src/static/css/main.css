@@ -6945,6 +6945,16 @@ html.light .theme-toggle-icon-moon {
   min-width: 0;
   overflow-x: auto;
 }
+/* An auto-filled value shares the row with the shortcuts, so the value gives way first. */
+.date-picker-trigger.date-picker-trigger-autofilled {
+  flex: 1 1 auto;
+  min-width: 3rem;
+}
+
+.date-picker-trigger-autofilled + .date-picker-quick-actions {
+  flex: 0 0 auto;
+}
+
 .date-picker-empty-label {
   display: none;
   align-items: center;
