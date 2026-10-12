@@ -1313,6 +1313,38 @@ COMICVINE_API = config(
     ),
 )
 
+# Game artwork providers. SteamGridDB and TheGamesDB take a key of the member's
+# own. ScreenScraper identifies Floppy itself with developer credentials that
+# ScreenScraper issues to the project: they are read only from the environment
+# or a Docker secret, are never committed, and leave ScreenScraper inactive
+# until set. SCREENSCRAPER_SSID and SCREENSCRAPER_SSPASSWORD are an optional
+# member login that raises personal limits.
+STEAMGRIDDB_API_KEY = config(
+    "STEAMGRIDDB_API_KEY",
+    default=secret("STEAMGRIDDB_API_KEY_FILE", ""),
+)
+THEGAMESDB_API_KEY = config(
+    "THEGAMESDB_API_KEY",
+    default=secret("THEGAMESDB_API_KEY_FILE", ""),
+)
+SCREENSCRAPER_DEV_ID = config(
+    "SCREENSCRAPER_DEV_ID",
+    default=secret("SCREENSCRAPER_DEV_ID_FILE", ""),
+)
+SCREENSCRAPER_DEV_PASSWORD = config(
+    "SCREENSCRAPER_DEV_PASSWORD",
+    default=secret("SCREENSCRAPER_DEV_PASSWORD_FILE", ""),
+)
+SCREENSCRAPER_SOFTNAME = config("SCREENSCRAPER_SOFTNAME", default="Floppy")
+SCREENSCRAPER_SSID = config(
+    "SCREENSCRAPER_SSID",
+    default=secret("SCREENSCRAPER_SSID_FILE", ""),
+)
+SCREENSCRAPER_SSPASSWORD = config(
+    "SCREENSCRAPER_SSPASSWORD",
+    default=secret("SCREENSCRAPER_SSPASSWORD_FILE", ""),
+)
+
 # Grand Comics Database login. No default: GCD limits anonymous API access to
 # 30 requests an hour, and a login is tied to one person's account.
 GCD_USERNAME = config("GCD_USERNAME", default=secret("GCD_USERNAME_FILE", ""))
