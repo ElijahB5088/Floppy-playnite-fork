@@ -18,6 +18,7 @@ from app.models import (
     MediaTypes,
     Movie,
     Music,
+    PodcastEpisode,
     PodcastShow,
     PodcastShowTracker,
     Sources,
@@ -933,6 +934,47 @@ class TagLinkShowsEveryTaggedEntryTest(TestCase):
         )
         self.assertNotContains(response, "Tagged Show")
         self.assertContains(response, "Other Show")
+
+    def test_podcast_list_finds_shows_by_a_tagged_episode(self):
+        """An episode's tag counts for its show."""
+        tagged = PodcastShow.objects.create(
+            podcast_uuid="tagged-show",
+            source=Sources.POCKETCASTS.value,
+            title="Show With Tagged Episode",
+        )
+        other = PodcastShow.objects.create(
+            podcast_uuid="other-show",
+            source=Sources.POCKETCASTS.value,
+            title="Show Without Tags",
+        )
+        for show in (tagged, other):
+            PodcastShowTracker.objects.create(
+                user=self.user,
+                show=show,
+                status=Status.IN_PROGRESS.value,
+            )
+        PodcastEpisode.objects.create(
+            show=tagged,
+            episode_uuid="tagged-episode",
+            title="Episode",
+        )
+        self._item(
+            MediaTypes.PODCAST.value,
+            "Episode",
+            media_id="tagged-episode",
+            source=Sources.POCKETCASTS.value,
+        )
+
+        _entry, response = self._followed(MediaTypes.PODCAST.value)
+        self.assertContains(response, "Show With Tagged Episode")
+        self.assertNotContains(response, "Show Without Tags")
+
+        response = self.client.get(
+            reverse("medialist", args=["podcast"]),
+            {"tag": "Will Not Play", "tag_mode": "not"},
+        )
+        self.assertNotContains(response, "Show With Tagged Episode")
+        self.assertContains(response, "Show Without Tags")
 
 
 class NormalizeTagNamesMigrationTest(TestCase):

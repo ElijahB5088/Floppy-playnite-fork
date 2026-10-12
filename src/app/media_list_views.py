@@ -2623,7 +2623,7 @@ def media_list(request, media_type):
     # For podcasts, show tracked shows instead of individual episodes
     # This parallels TV which shows TV shows, not seasons/episodes
     if media_type == MediaTypes.PODCAST.value:
-        from app.models import PodcastShowTracker
+        from app.models import PodcastEpisode, PodcastShowTracker
 
         show_trackers = (
             PodcastShowTracker.objects.filter(user=request.user)
@@ -2640,22 +2640,24 @@ def media_list(request, media_type):
         if search_query:
             show_trackers = show_trackers.filter(show__title__icontains=search_query)
 
-        # A tag sits on the show's item, which carries the show's uuid.
+        # A tag sits on the show's item (the show's uuid) or on one of its
+        # episodes (the episode's uuid); either tags the show.
         if tag_included_ids is not None or tag_excluded_ids is not None:
-            tagged_show_uuids = Item.objects.filter(
+            tagged_uuids = Item.objects.filter(
                 pk__in=tag_included_ids
                 if tag_included_ids is not None
                 else tag_excluded_ids,
                 media_type=MediaTypes.PODCAST.value,
             ).values("media_id")
+            tagged_shows = Q(show__podcast_uuid__in=tagged_uuids) | Q(
+                show_id__in=PodcastEpisode.objects.filter(
+                    episode_uuid__in=tagged_uuids,
+                ).values("show_id"),
+            )
             if tag_included_ids is not None:
-                show_trackers = show_trackers.filter(
-                    show__podcast_uuid__in=tagged_show_uuids,
-                )
+                show_trackers = show_trackers.filter(tagged_shows)
             else:
-                show_trackers = show_trackers.exclude(
-                    show__podcast_uuid__in=tagged_show_uuids,
-                )
+                show_trackers = show_trackers.exclude(tagged_shows)
 
         # Apply rating filter to shows
         if rating_filter == "rated":
