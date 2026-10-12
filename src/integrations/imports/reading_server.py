@@ -105,9 +105,9 @@ def write_reading_progress(
         or started_at
         or read_at,
         "end_date": (
-            ((existing.end_date if existing else None) or read_at)
+            (read_at or (existing.end_date if existing else None))
             if completed
-            else None
+            else (existing.end_date if existing else None)
         ),
     }
     defaults = keep_held_status(existing, defaults, read_at)
