@@ -457,12 +457,12 @@ def import_psn(user_id, mode="new"):
 @shared_task(name="Import from PSN (Recurring)")
 def import_psn_recurring(user_id, mode="new"):
     """Recurring import task for PSN."""
-    # An unreachable cache must not silently stop the schedule: the lock only
-    # guards against an overlapping sync, which the cache being down can't tell.
+    # Skip rather than risk two overlapping syncs logging the same play twice;
+    # the next run picks up the same growth.
     return _run_psn_import(
         user_id,
         mode,
-        on_cache_error=cache_safety.ON_ERROR_PROCEED,
+        on_cache_error=cache_safety.ON_ERROR_SKIP,
     )
 
 
