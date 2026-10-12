@@ -1332,7 +1332,7 @@ class IntegrationTest(SerialStaticLiveServerTestCase):
         self._create_test_movie_item(mock_get_metadata)
         runtime_ms = 95 * 60 * 1000
 
-        # Completed leaves the End date empty and says what saving will do.
+        # Completed leaves the End date empty, with the shortcuts offered.
         modal = self._open_new_movie_tracker(Status.COMPLETED.value)
         end_input = modal.locator('input[name="end_date"]')
         start_input = modal.locator('input[name="start_date"]')
@@ -1340,7 +1340,7 @@ class IntegrationTest(SerialStaticLiveServerTestCase):
         expect(end_input).to_have_value("")
         expect(start_input).to_have_value("")
         expect(end_actions).to_be_visible()
-        expect(end_actions).to_contain_text("Defaults to now")
+        expect(end_actions).to_contain_text("Not set")
 
         # Just Finished sets the end to now and the start a runtime earlier.
         before = self.page.evaluate("Date.now()")

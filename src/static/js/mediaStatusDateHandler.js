@@ -94,7 +94,6 @@ function trackModalMarkEndCleared(form) {
     const data = Alpine.$data(form);
     if (data && "endCleared" in data) {
       data.endCleared = true;
-      data.refreshEndDefault();
     }
   } catch {
     // Ignore Alpine lookup failures; the end date just keeps its default.
@@ -377,10 +376,9 @@ document.addEventListener("alpine:init", () => {
     manualStartDate: false,
     // The End date stays empty until the user acts: it is only filled in on
     // save (or when Progress needs it). endCleared records an explicit "no end
-    // date"; endDefaultsToNow drives the "Defaults to now" label.
+    // date" (the clear button or None).
     isNewForm: false,
     endCleared: false,
-    endDefaultsToNow: false,
     // Track original values to detect intentionally empty dates
     original: {
       status: null,
@@ -456,12 +454,6 @@ document.addEventListener("alpine:init", () => {
         return false;
       }
       return this.isNewForm || status !== this.original.status;
-    },
-
-    refreshEndDefault() {
-      const endDateField = this.$el.querySelector('[name="end_date"]');
-      this.endDefaultsToNow =
-        Boolean(endDateField) && !endDateField.value && this.shouldDefaultEndDate();
     },
 
     init() {
@@ -564,10 +556,6 @@ document.addEventListener("alpine:init", () => {
 
       // The End date is not pre-filled on open, so the Just Finished and Start
       // Now shortcuts stay available (see shouldDefaultEndDate).
-      if (endDateField) {
-        endDateField.addEventListener("input", () => this.refreshEndDefault());
-      }
-      this.refreshEndDefault();
       if (isNewForm && statusField && statusField.value === "In progress") {
         this.syncStartDateFromProgress();
       }
@@ -595,7 +583,6 @@ document.addEventListener("alpine:init", () => {
 
           // A new status re-arms the default End date.
           this.endCleared = false;
-          this.refreshEndDefault();
 
           if (status === "Completed" || status === "In progress") {
             this.syncStartDateFromProgress();

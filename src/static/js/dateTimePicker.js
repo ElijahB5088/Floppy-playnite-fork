@@ -134,19 +134,6 @@ if (!window.__floppyDateTimePickerBound) {
       return Boolean(this.value);
     },
 
-    // An empty End date on a new Completed / In progress entry saves as now.
-    get defaultsToNow() {
-      if (this.fieldName !== "end_date" || !window.Alpine) {
-        return false;
-      }
-      try {
-        const form = this.$refs.hiddenInput.closest("form");
-        return Boolean(form && Alpine.$data(form)?.endDefaultsToNow);
-      } catch {
-        return false;
-      }
-    },
-
     get displayText() {
       const parts = this.parts();
       if (!parts) {

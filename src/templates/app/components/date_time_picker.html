@@ -59,8 +59,7 @@
            x-cloak
            role="group"
            aria-label="{% blocktranslate trimmed with value_1=translated_field_label %}{{ value_1 }} quick actions{% endblocktranslate %}">
-        <span class="date-picker-empty-label" x-show="!defaultsToNow">{% translate "Not set" %}</span>
-        <span class="date-picker-empty-label" x-show="defaultsToNow" x-cloak>{% translate "Defaults to now" %}</span>
+        <span class="date-picker-empty-label">{% translate "Not set" %}</span>
         {% if quick_action_mode != "end" %}
           <button type="button"
                   @click="applyQuickAction('start-now')"
