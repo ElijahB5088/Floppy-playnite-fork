@@ -1,7 +1,8 @@
 {% load i18n %}
 {% load app_tags %}
 {# Split button for a tracked item: main action, then nothing, one icon-only segment, or a menu. #}
-{% media_track_actions media_type current_instance.status as actions %}
+{# Grouped anime (TMDB/TVDB) is tracked as a TV show, which holds one tracker, so decide by the stored type. #}
+{% media_track_actions current_instance.item.media_type|default:media_type current_instance.status as actions %}
 {% with main=actions.0 rest=actions|slice:"1:" %}
   {% with status_label=current_instance.status|media_status_readable %}
     <div x-data="{ editTrackOpen: false, createTrackOpen: false, trackMenuOpen: false }"
