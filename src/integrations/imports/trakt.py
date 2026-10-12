@@ -133,6 +133,19 @@ def new_pkce_pair():
     return code_verifier, code_challenge
 
 
+def default_client_secret():
+    """Return the client secret that belongs to the client ID now in use.
+
+    A PKCE app has none. When the client ID is someone's own but the only
+    secret on hand comes from another source (say the instance's), that secret
+    belongs to a different app and would be rejected, so it is not used.
+    """
+    secret_source = credentials.source_of("trakt", "client_secret")
+    if secret_source != credentials.source_of("trakt", "client_id"):
+        return ""
+    return credentials.get("trakt", "client_secret")
+
+
 def handle_oauth_callback(
     request,
     redirect_uri=None,
@@ -143,7 +156,8 @@ def handle_oauth_callback(
     """View for getting the Trakt OAuth2 token.
 
     An app without a client secret proves itself with the PKCE ``code_verifier``
-    that matches the challenge sent when authorizing.
+    that matches the challenge sent when authorizing. Pass ``client_secret=""``
+    for such an app so no other secret is substituted.
     """
     code = request.GET["code"]
 
@@ -156,8 +170,8 @@ def handle_oauth_callback(
         )
     if not client_id:
         client_id = credentials.get("trakt", "client_id")
-    if not client_secret:
-        client_secret = credentials.get("trakt", "client_secret")
+    if client_secret is None:
+        client_secret = default_client_secret()
 
     params = {
         "client_id": client_id,
@@ -287,8 +301,8 @@ def poll_device_token(device_code, client_id=None, client_secret=None):
     """
     if not client_id:
         client_id = credentials.get("trakt", "client_id")
-    if not client_secret:
-        client_secret = credentials.get("trakt", "client_secret")
+    if client_secret is None:
+        client_secret = default_client_secret()
 
     try:
         response = services.resilient_request(
@@ -359,7 +373,7 @@ def get_access_token(encrypted_refresh_token, redirect_uri=None):
         "redirect_uri": redirect_uri or _refresh_redirect_uri(),
     }
     # Apps made without a client secret (PKCE) refresh with the client ID alone.
-    if client_secret := credentials.get("trakt", "client_secret"):
+    if client_secret := default_client_secret():
         params["client_secret"] = client_secret
 
     try:

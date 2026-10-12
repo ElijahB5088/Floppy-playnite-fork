@@ -752,7 +752,7 @@ def trakt_oauth(request):
         f"client_id={client_id}&redirect_uri={redirect_uri}"
         f"&response_type=code&state={state_token}"
     )
-    if not credentials.get("trakt", "client_secret"):
+    if not trakt.default_client_secret():
         # An app without a client secret authorizes with PKCE instead.
         state["code_verifier"], code_challenge = trakt.new_pkce_pair()
         query += f"&code_challenge={code_challenge}&code_challenge_method=S256"
