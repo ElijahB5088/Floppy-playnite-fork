@@ -4,6 +4,7 @@ from unittest.mock import patch
 from django.template.loader import render_to_string
 from django.test import RequestFactory, SimpleTestCase
 
+from app import checkin
 from app.models import MediaTypes, Status
 from app.track_actions import track_actions
 
@@ -57,13 +58,63 @@ class TrackActionsTests(SimpleTestCase):
                 self.assertEqual(self.keys(MediaTypes.MANGA.value, status), [EDIT])
 
 
+class CheckInActionsTests(SimpleTestCase):
+    """A movie that can be checked in leads with the check-in action for its phase."""
+
+    def keys(self, phase, status):
+        return [
+            action["key"]
+            for action in track_actions(
+                MediaTypes.MOVIE.value,
+                status,
+                {"phase": phase, "reload_in": None},
+            )
+        ]
+
+    def test_idle_unfinished_movie_leads_with_check_in(self):
+        for status in (
+            Status.PLANNING.value,
+            Status.IN_PROGRESS.value,
+            Status.PAUSED.value,
+            Status.DROPPED.value,
+        ):
+            with self.subTest(status=status):
+                self.assertEqual(self.keys(checkin.PHASE_IDLE, status), ["start", EDIT])
+
+    def test_idle_completed_movie_keeps_add_entry_first(self):
+        self.assertEqual(
+            self.keys(checkin.PHASE_IDLE, Status.COMPLETED.value),
+            [ADD, "start", EDIT],
+        )
+
+    def test_running_check_in_leads_with_pause_then_finish(self):
+        self.assertEqual(
+            self.keys(checkin.PHASE_ACTIVE, Status.IN_PROGRESS.value),
+            ["pause", "cancel", EDIT],
+        )
+        self.assertEqual(
+            self.keys(checkin.PHASE_FINISHABLE, Status.IN_PROGRESS.value),
+            ["finish", "pause", "cancel", EDIT],
+        )
+
+    def test_paused_check_in_leads_with_resume(self):
+        self.assertEqual(
+            self.keys(checkin.PHASE_PAUSED, Status.IN_PROGRESS.value),
+            ["resume", EDIT],
+        )
+
+
 class TrackSplitTemplateTests(SimpleTestCase):
     """One action is a plain button, two a pencil segment, three or more a menu."""
 
     def render(self, actions, status=Status.COMPLETED.value):
         request = RequestFactory().get("/details/")
+        request.user = SimpleNamespace(id=1)
         media = {"source": "tmdb", "media_type": "movie", "media_id": "238"}
-        with patch("app.track_actions.track_actions", return_value=actions):
+        with (
+            patch("app.track_actions.track_actions", return_value=actions),
+            patch("app.checkin.phase", return_value=None),
+        ):
             return render_to_string(
                 "app/components/detail_track_split.html",
                 {
@@ -109,9 +160,16 @@ class TrackSplitTemplateTests(SimpleTestCase):
     def test_grouped_anime_is_decided_by_its_stored_type(self):
         """A TMDB anime is one TV tracker, so a new entry would collide with it."""
         request = RequestFactory().get("/details/")
+        request.user = SimpleNamespace(id=1)
         media = {"source": "tmdb", "media_type": "anime", "media_id": "1"}
         for stored, expected in (("tv", False), ("anime", True)):
-            with self.subTest(stored=stored):
+            with (
+                self.subTest(stored=stored),
+                patch(
+                    "app.checkin.phase",
+                    return_value=None,
+                ),
+            ):
                 html = render_to_string(
                     "app/components/detail_track_split.html",
                     {
