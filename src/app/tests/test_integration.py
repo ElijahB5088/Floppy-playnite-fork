@@ -702,7 +702,6 @@ class IntegrationTest(SerialStaticLiveServerTestCase):
 
         expect(self.page.get_by_role("main")).to_contain_text("Test Movie")
 
-        self.page.get_by_role("button", name="More tracking actions").click()
         expect(self.page.get_by_role("button", name="Add new entry")).to_be_visible()
         self.page.get_by_role("button", name="Add new entry").click()
 
@@ -711,7 +710,6 @@ class IntegrationTest(SerialStaticLiveServerTestCase):
         create_modal.locator("button[type='button']").first.click()
         expect(self.page.locator("[data-track-modal-root]:visible")).to_have_count(0)
 
-        self.page.get_by_role("button", name="More tracking actions").click()
         self.page.get_by_role("button", name="Add new entry").click()
         expect(create_modal).to_be_visible()
 
@@ -921,7 +919,8 @@ class IntegrationTest(SerialStaticLiveServerTestCase):
         self.assertIsNone(new_movie.start_date)
         self.assertIsNone(new_movie.end_date)
 
-        self.page.get_by_role("button", name="Completed", exact=True).click()
+        self.page.get_by_role("button", name="More tracking actions").click()
+        self.page.get_by_role("button", name="Edit", exact=True).click()
         edit_modal = self.page.locator("[data-track-modal-root]:visible").first
         expect(edit_modal).to_be_visible()
         edit_modal.locator("button[type='button']").first.click()
@@ -1001,7 +1000,6 @@ class IntegrationTest(SerialStaticLiveServerTestCase):
         expect(self.page.get_by_role("main")).to_contain_text("Test Movie")
         self._stretch_content_container()
 
-        self.page.get_by_role("button", name="More tracking actions").click()
         self.page.get_by_role("button", name="Add new entry").click()
         expect(self.page.locator("[data-track-modal-root]:visible")).to_be_visible()
 
@@ -1169,7 +1167,6 @@ class IntegrationTest(SerialStaticLiveServerTestCase):
             name="Close activity history",
         ).click()
 
-        self.page.get_by_role("button", name="More tracking actions").click()
         self.page.get_by_role("button", name="Add new entry").click()
         track_modal = self.page.locator("[data-track-modal-root]:visible").first
         track_modal.get_by_role("button", name="Open End date picker").click()
@@ -1244,7 +1241,7 @@ class IntegrationTest(SerialStaticLiveServerTestCase):
         )
 
         expect(self.page.get_by_role("main")).to_contain_text("Wordle")
-        self.page.get_by_role("button", name="Planning", exact=True).click()
+        self.page.get_by_role("button", name=re.compile("^Edit entry")).click()
 
         modal = self.page.locator("[data-track-modal-root]:visible").first
         expect(modal).to_be_visible()
