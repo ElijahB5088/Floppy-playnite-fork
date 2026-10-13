@@ -28,13 +28,18 @@ class TrackActionsTests(SimpleTestCase):
             MediaTypes.ANIME.value,
             MediaTypes.BOOK.value,
             MediaTypes.COMIC.value,
-            MediaTypes.VIDEO.value,
         ):
             with self.subTest(media_type=media_type):
                 self.assertEqual(
                     self.keys(media_type, Status.COMPLETED.value),
                     [ADD, EDIT],
                 )
+
+    def test_videos_keep_one_row_so_they_never_offer_a_new_entry(self):
+        self.assertEqual(
+            self.keys(MediaTypes.VIDEO.value, Status.COMPLETED.value),
+            [EDIT],
+        )
 
     def test_unfinished_items_only_edit(self):
         for status in (
@@ -100,7 +105,6 @@ class TrackSplitTemplateTests(SimpleTestCase):
         self.assertIn('@keydown.escape.window="trackMenuOpen = false"', html)
         self.assertIn("Another action", html)
         self.assertNotIn("Edit entry,", html)
-
 
     def test_grouped_anime_is_decided_by_its_stored_type(self):
         """A TMDB anime is one TV tracker, so a new entry would collide with it."""
