@@ -179,6 +179,30 @@ class KavitaImporterTests(TestCase):
             datetime(2026, 9, 20, 12, 0, tzinfo=UTC),
         )
 
+    def test_incremental_comic_sync_does_not_use_series_date_for_missing_chapter_date(
+        self,
+    ):
+        self.account.last_sync_at = datetime(2026, 9, 15, tzinfo=UTC)
+        self.account.save(update_fields=["last_sync_at"])
+        series = _series(
+            2,
+            name="Saga",
+            latestReadDate="2026-09-20T12:00:00Z",
+        )
+        chapters = [
+            _chapter(
+                21,
+                pages_read=20,
+                number=1,
+                comicVineId="301",
+                lastReadingProgressUtc=None,
+            ),
+        ]
+
+        self._sync([series], {2: _detail(COMIC, chapters)})
+
+        self.assertFalse(ComicIssue.objects.exists())
+
     def test_fully_read_manga_is_completed_on_the_read_date(self):
         series = _series(1, malId=13, pages=40, pages_read=40)
         chapters = [

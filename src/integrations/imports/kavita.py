@@ -430,7 +430,7 @@ class KavitaImporter(ReadingServerImporter):
                     self._import_comic_issue(
                         series,
                         chapter,
-                        chapter_read_at or read_at,
+                        chapter_read_at,
                         links,
                         counts,
                     )
