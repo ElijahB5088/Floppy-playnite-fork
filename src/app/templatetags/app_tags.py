@@ -18,7 +18,7 @@ from django.utils.translation import (
 from django.utils.translation import gettext as _
 from unidecode import unidecode
 
-from app import card_surfaces, config, helpers, image_cache
+from app import card_surfaces, config, helpers, image_cache, track_actions
 from app.models import Item, MediaTypes, Sources, Status
 from app.providers import tmdb
 from app.services import metadata_resolution
@@ -2141,3 +2141,9 @@ def media_card(context, surface, **values):
     See ``app.card_surfaces`` for the surfaces and the values a card accepts.
     """
     return card_surfaces.card_context(context.flatten(), surface, values)
+
+
+@register.simple_tag
+def media_track_actions(media_type, status):
+    """Return the detail-page split button actions for this item."""
+    return track_actions.track_actions(media_type, status)
